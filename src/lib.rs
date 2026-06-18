@@ -38,6 +38,9 @@ mod typing;
 // They use DuckDB's virtual filesystem (the unstable C API), so they're absent
 // from a stable `--no-default-features` build.
 #[cfg(feature = "vfs")]
+#[path = "cache.rs"]
+mod cache;
+#[cfg(feature = "vfs")]
 #[path = "load.rs"]
 mod load;
 #[cfg(feature = "vfs")]
