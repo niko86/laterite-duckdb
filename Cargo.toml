@@ -19,6 +19,10 @@ license = "MIT"
 publish = false
 
 [lib]
+# Name the cdylib after the extension, not the package, so the build emits
+# `liblaterite_ags4.dylib` — the filename extension-ci-tools expects
+# (lib<EXTENSION_NAME>.dylib). Package stays `laterite-duckdb` (the repo name).
+name = "laterite_ags4"
 crate-type = ["cdylib"]
 
 [dependencies]

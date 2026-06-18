@@ -3,16 +3,39 @@
 
 PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-# Extension configuration
-EXT_NAME=laterite_ags4
-EXT_CONFIG=$(PROJ_DIR)extension_config.cmake
+# Extension configuration. The c_api_extensions makefiles read EXTENSION_NAME
+# + TARGET_DUCKDB_VERSION — NOT the old C++-CMake-template EXT_NAME/EXT_CONFIG/
+# DUCKDB_PLATFORM_VERSION, which these makefiles silently ignore. That mismatch
+# is why `cargo build` saw an empty DUCKDB_EXTENSION_NAME and looked for the
+# wrong dylib (`lib.dylib`).
+EXTENSION_NAME=laterite_ags4
 
-# C Extension API (NOT the DuckDB release version). v1.5.0 is the floor the
-# `duckdb-1-5` feature (virtual filesystem) requires; the build is forward-
-# compatible to the community target (v1.5.3).
+# Unstable C Extension API — required by the `duckdb-1-5` VFS feature. NOTE: the
+# unstable API pins the built binary to ONE EXACT DuckDB version (it is NOT
+# forward-compatible — a v1.5.0 binary refuses to load in v1.5.4). So this MUST
+# equal the DuckDB the extension runs against; the test runner installs latest
+# stable (v1.5.4). community-extensions builds one binary per DuckDB version in
+# its CI matrix and overrides this, so locally just match your test DuckDB.
 USE_UNSTABLE_C_API=1
-DUCKDB_PLATFORM_VERSION=v1.5.0
+TARGET_DUCKDB_VERSION=v1.5.4
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
+
+# --- Convenience aliases -------------------------------------------------
+# extension-ci-tools ships only low-level targets (platform, venv,
+# build_extension_with_metadata_*, test_extension_*). The duckdb template
+# normally wires these friendly aliases on top; the staged scaffold omitted
+# them, so `make configure` / `make release` / `make test` had nothing to run
+# (`make test` even matched the test/ DIRECTORY). .PHONY so `test` isn't
+# shadowed by that dir. Usage: make configure && make release && make test
+.PHONY: configure release debug test test_release test_debug clean clean_all
+configure: venv platform extension_version
+release:   build_extension_with_metadata_release
+debug:     build_extension_with_metadata_debug
+test:         test_release
+test_release: test_extension_release
+test_debug:   test_extension_debug
+clean:     clean_build clean_rust
+clean_all: clean_configure clean_build clean_rust

@@ -2,5 +2,8 @@
 *.duckdb
 *.wal
 build/
+# `make configure` writes a venv + generated platform/version files here — all
+# regenerated per build, never committed (the venv alone is ~100 MB).
+configure/
 .env
 __pycache__/
