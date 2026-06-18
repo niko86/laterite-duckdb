@@ -5,13 +5,13 @@ extension:
   language: Rust
   build: cargo
   license: MIT
-  # wasm is EXCLUDED for now — not because the code fails (it was verified end to
-  # end in DuckDB-WASM: read_ags returns correct typed rows), but because of a
-  # version skew. The unstable C API is version-exact; native runs on DuckDB 1.5.3+
-  # while DuckDB-WASM is still 1.5.1, and one Cargo manifest can't pin libduckdb-sys
-  # to both (cargo unifies the 1.x version). Re-enable (drop the wasm_* entries +
-  # repin to 1.5.1) once DuckDB-WASM reaches 1.5.3. linux_amd64_musl: untested.
-  excluded_platforms: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
+  # wasm IS built — as a stable-API subset. The unstable C API (VFS path readers)
+  # is version-exact and DuckDB-WASM lags native, so on wasm the Makefile builds
+  # `--no-default-features`: a forward-compatible C_STRUCT extension exposing
+  # read_ags_text (AGS content passed as an argument) + ags_dictionary +
+  # ags_relationships. Path/remote readers (read_ags, ags_groups, …) are
+  # native-only until DuckDB-WASM catches up. linux_amd64_musl: untested.
+  excluded_platforms: "linux_amd64_musl"
   requires_toolchains: "rust"
   maintainers:
     - niko86
