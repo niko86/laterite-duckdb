@@ -21,13 +21,25 @@
 
 use quack_rs::prelude::*;
 
+// `#[path]` so submodules resolve from `src/` whether lib.rs is the native crate
+// root OR re-included as `mod lib;` by the wasm shim (src/wasm_lib.rs). Without
+// it the wasm build looks for `src/lib/*.rs`. Paired with the submodules' `super::`
+// imports, this makes lib.rs compile in both contexts.
+#[path = "dict_fns.rs"]
 mod dict_fns;
+#[path = "load.rs"]
 mod load;
+#[path = "meta.rs"]
 mod meta;
+#[path = "read_ags.rs"]
 mod read_ags;
+#[path = "rows.rs"]
 mod rows;
+#[path = "source.rs"]
 mod source;
+#[path = "typing.rs"]
 mod typing;
+#[path = "validate.rs"]
 mod validate;
 
 /// Register every function this extension provides.

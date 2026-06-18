@@ -8,7 +8,7 @@
 //!   `keychain` ids.
 //! - **scan** streams the rows back a vector-size (≈2048) chunk at a time.
 //!
-//! Reads go through DuckDB's virtual filesystem (see [`crate::source`]), so
+//! Reads go through DuckDB's virtual filesystem (see [`super::source`]), so
 //! `path` may be local, `http(s)://`, or `s3://` (with `LOAD httpfs`). A group
 //! outside the AGS dictionary (passthrough/custom) returns a clear bind error
 //! for now.
@@ -21,7 +21,7 @@ use laterite_types::parse_value;
 use quack_rs::prelude::*;
 use quack_rs::vector::vector_size;
 
-use crate::typing::{Emit, write_value};
+use super::typing::{Emit, write_value};
 
 /// One output data column (after the `_id` / `_parent_id` pair).
 struct Column {
@@ -69,7 +69,7 @@ fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     // SAFETY: `info` is a live bind-info; `get_client_context` yields the
     // query's client context, from which `source` obtains the VFS.
     let ctx = unsafe { info.get_client_context() };
-    let parsed = crate::source::read_parsed(&ctx, &path)?;
+    let parsed = super::source::read_parsed(&ctx, &path)?;
 
     let ags = parsed.get(&group).ok_or_else(|| {
         ExtensionError::new(format!(

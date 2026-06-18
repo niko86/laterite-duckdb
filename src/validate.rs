@@ -21,7 +21,7 @@ use laterite_ags4_validator::findings::Severity;
 use laterite_ags4_validator::{CheckOptions, DictVersion, check_file};
 use quack_rs::prelude::*;
 
-use crate::rows::{Cell, register_rows};
+use super::rows::{Cell, register_rows};
 
 pub fn register(con: &Connection) -> ExtResult<()> {
     register_rows(

@@ -5,9 +5,10 @@ extension:
   language: Rust
   build: cargo
   license: MIT
-  # wasm + static-musl are untested for this extension's bundled-engine-free
-  # loadable build; native platforms first, wasm is a follow-up.
-  excluded_platforms: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
+  # wasm builds + verified locally (wasm_mvp/eh/threads all produce a loadable
+  # .duckdb_extension.wasm). static-musl is still untested (its own toolchain),
+  # so it stays excluded until verified.
+  excluded_platforms: "linux_amd64_musl"
   requires_toolchains: "rust"
   maintainers:
     - niko86
