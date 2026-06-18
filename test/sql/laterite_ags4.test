@@ -70,3 +70,18 @@ SELECT count(*) FROM ags_validate('test/sql/mini.ags')
 WHERE severity NOT IN ('error', 'warning', 'fyi');
 ----
 0
+
+# read_ags_text: parse AGS4 content passed as a VARCHAR (stable-API path, no VFS).
+# Same born-typed output as read_ags — 2 LOCA rows, LOCA_GL typed DOUBLE — but the
+# content comes in as an argument (here a literal; a bound parameter at runtime),
+# so it needs no virtual filesystem. chr(10) joins avoid blank lines in this file.
+query IT
+SELECT count(*)::INTEGER, MAX(typeof(loca_gl)) FROM read_ags_text(
+'"GROUP","PROJ"' || chr(10) || '"HEADING","PROJ_ID"' || chr(10) ||
+'"UNIT",""' || chr(10) || '"TYPE","ID"' || chr(10) || '"DATA","P1"' || chr(10) ||
+chr(10) ||
+'"GROUP","LOCA"' || chr(10) || '"HEADING","LOCA_ID","LOCA_GL"' || chr(10) ||
+'"UNIT","","m"' || chr(10) || '"TYPE","ID","2DP"' || chr(10) ||
+'"DATA","BH01","55.20"' || chr(10) || '"DATA","BH02","48.30"', 'LOCA');
+----
+2	DOUBLE

@@ -12,9 +12,16 @@
 //! `path` may be local, `http(s)://`, or `s3://` (with `LOAD httpfs`). A group
 //! outside the AGS dictionary (passthrough/custom) returns a clear bind error
 //! for now.
+//!
+//! `read_ags_text(content, group)` is a STABLE-API experiment: it takes the
+//! AGS4 file's text as a VARCHAR argument (e.g. from DuckDB's built-in
+//! `read_text`) instead of reading a path via the VFS — so it needs no unstable
+//! C API. PROTOTYPE to check whether the content arg reaches bind (table-fn args
+//! must be constant-foldable at bind, where the schema is decided).
 
 use std::collections::HashMap;
 
+use laterite_ags4_core::ags4_codec::{ParsedAgs4, read_ags4_bytes};
 use laterite_ags4_core::keychain;
 use laterite_ags4_core::registry::registry;
 use laterite_types::parse_value;
@@ -43,7 +50,8 @@ pub struct ReadAgsState {
     cursor: usize,
 }
 
-/// Build `read_ags(path, group)` and register it on the connection.
+/// Build `read_ags(path, group)` (VFS path reader; uses the unstable C API).
+#[cfg(feature = "vfs")]
 pub fn register(con: &Connection) -> ExtResult<()> {
     let builder = TableFunctionBuilder::new("read_ags")
         .param(TypeId::Varchar) // path
@@ -56,7 +64,19 @@ pub fn register(con: &Connection) -> ExtResult<()> {
     unsafe { con.register_table(builder) }
 }
 
-/// bind: parse + plan the output once per query.
+/// Build `read_ags_text(content, group)` — STABLE-only variant (no VFS).
+pub fn register_text(con: &Connection) -> ExtResult<()> {
+    let builder = TableFunctionBuilder::new("read_ags_text")
+        .param(TypeId::Varchar) // AGS4 file content
+        .param(TypeId::Varchar) // group
+        .with_state::<ReadAgsState, _>(bind_text)
+        .scan(scan)
+        .build()?;
+    unsafe { con.register_table(builder) }
+}
+
+/// bind (path): read params, slurp + parse the file via the VFS, then plan.
+#[cfg(feature = "vfs")]
 fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     // SAFETY: both are declared `Varchar` positional params, so DuckDB
     // guarantees they're present and string-valued during bind.
@@ -70,18 +90,38 @@ fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     // query's client context, from which `source` obtains the VFS.
     let ctx = unsafe { info.get_client_context() };
     let parsed = super::source::read_parsed(&ctx, &path)?;
+    plan(info, &parsed, &group)
+}
 
-    let ags = parsed.get(&group).ok_or_else(|| {
+/// bind (text): the AGS4 content arrives as a VARCHAR — parse it directly, no
+/// VFS, no unstable API. This is the bit under test: does the content argument
+/// reach bind as a constant?
+fn bind_text(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
+    let content = unsafe { info.get_parameter_value(0) }.as_str()?;
+    let group = unsafe { info.get_parameter_value(1) }
+        .as_str()?
+        .trim()
+        .to_uppercase();
+    let parsed = read_ags4_bytes(content.as_bytes()).map_err(|e| {
+        ExtensionError::new(format!("read_ags_text: input did not parse as AGS4 ({e})"))
+    })?;
+    plan(info, &parsed, &group)
+}
+
+/// Shared planning: resolve the group, declare the typed output schema, and
+/// precompute the deterministic ids. Used by both the path and text binds.
+fn plan(info: &BindInfo, parsed: &ParsedAgs4, group: &str) -> Result<ReadAgsState, ExtensionError> {
+    let ags = parsed.get(group).ok_or_else(|| {
         ExtensionError::new(format!(
-            "read_ags: group '{group}' not found in '{path}' (groups present: {})",
+            "group '{group}' not found (groups present: {})",
             parsed.order.join(", ")
         ))
     })?;
 
     let reg = registry();
-    let descriptor = reg.get(&group).cloned().ok_or_else(|| {
+    let descriptor = reg.get(group).cloned().ok_or_else(|| {
         ExtensionError::new(format!(
-            "read_ags: group '{group}' is not in the AGS dictionary; passthrough (custom-group) support is pending"
+            "group '{group}' is not in the AGS dictionary; passthrough (custom-group) support is pending"
         ))
     })?;
 
