@@ -10,13 +10,21 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # wrong dylib (`lib.dylib`).
 EXTENSION_NAME=laterite_ags4
 
-# Unstable C Extension API — required by the `duckdb-1-5` VFS feature. NOTE: the
-# unstable API pins the built binary to ONE EXACT DuckDB version (it is NOT
-# forward-compatible — a v1.5.0 binary refuses to load in v1.5.4). So this MUST
-# equal the DuckDB the extension runs against; the test runner installs latest
-# stable (v1.5.4). community-extensions builds one binary per DuckDB version in
-# its CI matrix and overrides this, so locally just match your test DuckDB.
-USE_UNSTABLE_C_API=1
+# Per-platform build mode — self-configured from DUCKDB_PLATFORM, which
+# community-extensions sets per build (it delegates to extension-ci-tools'
+# _extension_distribution.yml with a platform matrix). The UNSTABLE C API pins a
+# binary to one exact DuckDB version, and DuckDB-WASM lags native — so:
+#   * wasm  → STABLE build: `--no-default-features` (no VFS — read_ags_text +
+#             dictionary fns only), stable C API (C_STRUCT, forward-compatible),
+#             so it loads on whatever DuckDB-WASM ships (e.g. 1.5.1) despite the lag.
+#   * native → full VFS build (path readers, remote httpfs), unstable C API.
+# Native here = DUCKDB_PLATFORM blank/non-wasm → the else branch.
+ifneq ($(filter wasm_mvp wasm_eh wasm_threads,$(DUCKDB_PLATFORM)),)
+  USE_UNSTABLE_C_API=0
+  CARGO_OVERRIDE_DUCKDB_RS_FLAG=--no-default-features
+else
+  USE_UNSTABLE_C_API=1
+endif
 TARGET_DUCKDB_VERSION=v1.5.4
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
