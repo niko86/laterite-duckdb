@@ -39,3 +39,13 @@ test_release: test_extension_release
 test_debug:   test_extension_debug
 clean:     clean_build clean_rust
 clean_all: clean_configure clean_build clean_rust
+
+# --- WASM build-order fix ------------------------------------------------
+# This pinned extension-ci-tools lists `link_wasm_release` BEFORE
+# `build_extension_library_release` in build_extension_with_metadata_release's
+# prerequisites, and link_wasm_* carry no dependency on the build — so on a clean
+# tree `emcc` runs before cargo and dies ("liblaterite_ags4.a: No such file").
+# Add the missing edge so the staticlib is built before emcc links it. Native
+# builds are unaffected (link_wasm_* are no-ops off a wasm platform).
+link_wasm_release: build_extension_library_release
+link_wasm_debug: build_extension_library_debug

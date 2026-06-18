@@ -8,8 +8,8 @@ use laterite_ags4_core::registry::registry;
 use laterite_types::sql_type;
 use quack_rs::prelude::*;
 
-use crate::rows::{Cell, register_rows};
-use crate::source::read_parsed;
+use super::rows::{Cell, register_rows};
+use super::source::read_parsed;
 
 pub fn register(con: &Connection) -> ExtResult<()> {
     groups(con)?;

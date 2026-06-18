@@ -25,6 +25,15 @@ publish = false
 name = "laterite_ags4"
 crate-type = ["cdylib"]
 
+# WASM build target. extension-ci-tools compiles the wasm extension as
+# `cargo build --target wasm32-unknown-emscripten --example laterite_ags4`, so the
+# wasm entry is a staticlib [[example]] that re-includes lib.rs (src/wasm_lib.rs).
+# Builds only on demand (--example), so the native cdylib build is unaffected.
+[[example]]
+name = "laterite_ags4"
+crate-type = ["staticlib"]
+path = "src/wasm_lib.rs"
+
 [dependencies]
 # The four library crates, from the mirror submodule (laterite/ → niko86/laterite
 # pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.

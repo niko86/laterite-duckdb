@@ -10,7 +10,7 @@ use laterite_ags4_core::registry::registry;
 use laterite_types::sql_type;
 use quack_rs::prelude::*;
 
-use crate::rows::{Cell, register_rows};
+use super::rows::{Cell, register_rows};
 
 pub fn register(con: &Connection) -> ExtResult<()> {
     dictionary(con)?;
