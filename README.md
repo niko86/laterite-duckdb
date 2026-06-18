@@ -40,6 +40,7 @@ SELECT loca_id FROM read_ags('s3://bucket/site.ags', 'LOCA');
 | function | what it does |
 |---|---|
 | `read_ags(path, group)` | one group as a typed table: `_id` + `_parent_id` (UUIDv8) first, then a column per heading typed from the file's `TYPE` row; streamed lazily |
+| `read_ags_text(content, group)` | same typed output, but the AGS4 text is passed as a VARCHAR argument (literal or bound parameter) instead of a path — no filesystem, so it's the reader available in the **WASM** build |
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
 | `ags_dictionary()` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph |
@@ -48,6 +49,37 @@ SELECT loca_id FROM read_ags('s3://bucket/site.ags', 'LOCA');
 
 Paths go through DuckDB's filesystem, so local files, `http(s)://`, and `s3://`
 (with `LOAD httpfs`) all work.
+
+## In the browser (DuckDB-WASM)
+
+The path readers use DuckDB's virtual filesystem, which depends on an unstable C
+API revision DuckDB-WASM doesn't yet match — so the **WASM build ships a stable
+subset**: `read_ags_text` + `ags_dictionary` + `ags_relationships`. Your app
+already holds the AGS bytes (an upload or fetch), so you hand the text in as a
+bound parameter:
+
+```js
+import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/+esm';
+// … standard duckdb-wasm setup: instantiate AsyncDuckDB, then `const conn = await db.connect()` …
+
+await conn.query("INSTALL laterite_ags4 FROM community");
+await conn.query("LOAD laterite_ags4");
+
+// the file's text — e.g. from <input type="file"> (.text()) or fetch(url).then(r => r.text())
+const agsText = await file.text();
+
+const stmt = await conn.prepare(
+  "SELECT loca_id, loca_gl FROM read_ags_text(?, 'LOCA') WHERE loca_gl > 50.0"
+);
+const result = await stmt.query(agsText);
+console.table(result.toArray().map(r => r.toJSON()));   // born-typed — loca_gl is a number
+await stmt.close();
+```
+
+`read_ags_text` works on native too (handy when AGS content is already in memory).
+The content must be a literal or bound parameter — DuckDB doesn't allow a subquery
+such as `read_text(...)` as a table-function argument. The path/remote readers
+return on WASM once its engine catches up to native.
 
 ## How the keys join by construction
 
