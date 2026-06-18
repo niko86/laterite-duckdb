@@ -27,28 +27,43 @@ use quack_rs::prelude::*;
 // imports, this makes lib.rs compile in both contexts.
 #[path = "dict_fns.rs"]
 mod dict_fns;
-#[path = "load.rs"]
-mod load;
-#[path = "meta.rs"]
-mod meta;
 #[path = "read_ags.rs"]
 mod read_ags;
 #[path = "rows.rs"]
 mod rows;
-#[path = "source.rs"]
-mod source;
 #[path = "typing.rs"]
 mod typing;
+
+// VFS / path-based readers — compiled only with the `vfs` feature (default).
+// They use DuckDB's virtual filesystem (the unstable C API), so they're absent
+// from a stable `--no-default-features` build.
+#[cfg(feature = "vfs")]
+#[path = "load.rs"]
+mod load;
+#[cfg(feature = "vfs")]
+#[path = "meta.rs"]
+mod meta;
+#[cfg(feature = "vfs")]
+#[path = "source.rs"]
+mod source;
+#[cfg(feature = "vfs")]
 #[path = "validate.rs"]
 mod validate;
 
 /// Register every function this extension provides.
 fn register(con: &Connection) -> ExtResult<()> {
-    read_ags::register(con)?; // read_ags(path, group)
-    meta::register(con)?; // ags_groups, ags_headings
+    // Stable-API functions — present in every build, including the stable wasm one.
+    read_ags::register_text(con)?; // read_ags_text(content, group)
     dict_fns::register(con)?; // ags_dictionary, ags_relationships
-    validate::register(con)?; // ags_validate(path)
-    load::register(con)?; // load_ags_script(path)
+
+    // Path-based readers via the VFS (unstable C API) — `vfs` feature only.
+    #[cfg(feature = "vfs")]
+    {
+        read_ags::register(con)?; // read_ags(path, group)
+        meta::register(con)?; // ags_groups, ags_headings
+        validate::register(con)?; // ags_validate(path)
+        load::register(con)?; // load_ags_script(path)
+    }
     Ok(())
 }
 
