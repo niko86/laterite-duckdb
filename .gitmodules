@@ -1,0 +1,6 @@
+[submodule "extension-ci-tools"]
+	path = extension-ci-tools
+	url = https://github.com/duckdb/extension-ci-tools
+[submodule "laterite"]
+	path = laterite
+	url = https://github.com/niko86/laterite

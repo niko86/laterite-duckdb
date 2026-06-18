@@ -1,0 +1,45 @@
+# laterite_ags4 — DuckDB community extension (dedicated repo: niko86/laterite-duckdb).
+#
+# This crate IS the extension (extension-ci-tools requires the Cargo.toml at the
+# repo root). Its library dependencies are NOT vendored or pulled from crates.io
+# — they come from the `laterite` public mirror checked out as a git submodule at
+# `laterite/`, path-dep'd below. community-extensions clones this repo with
+# `submodules: recursive`, so the submodule (and its crates) are present at build.
+#
+# Build proven locally with these path-deps pointed at the live monorepo (a
+# standalone crate outside the workspace built a 5.9 MB loadable cdylib); the real
+# repo points them at the mirror submodule, as below.
+[package]
+name = "laterite-duckdb"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.87"      # quack-rs MSRV
+description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The four library crates, from the mirror submodule (laterite/ → niko86/laterite
+# pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.
+laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core" }
+laterite-types = { path = "laterite/rust-packages/laterite-types" }
+laterite-ags4-validator = { path = "laterite/rust-packages/laterite-ags4-validator" }
+serde_json = "1"
+# `duckdb-1-5` enables quack-rs's file_system/client_context modules (the VFS read
+# path). Pinned to the DuckDB 1.5.3 line to match the community-extensions target.
+quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
+libduckdb-sys = { version = "~1.10503", features = ["loadable-extension"] }
+
+[dev-dependencies]
+# In-process E2E (LOAD the built .duckdb_extension into a bundled DuckDB). Dev-only.
+quack-rs = { version = "0.14", features = ["bundled-test", "duckdb-1-5"] }
+
+# Release profile mirrors the community-extension build (small, fast cdylib).
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,72 @@
+# Integration tests for the laterite_ags4 extension.
+# Run via: make test   (extension-ci-tools drives DuckDB's sqllogictest runner)
+#
+# Format: https://duckdb.org/dev/sqllogictest/intro.html
+#   query I = INTEGER result, query T = VARCHAR, query R = REAL/DOUBLE.
+# Expected output must match DuckDB's exact format (LESSONS.md Pitfall P5) —
+# verify with `make test` before submitting; the fixture path is relative to the
+# repo root (the test runner's CWD).
+
+require laterite_ags4
+
+# read_ags: LOCA has 2 rows.
+query I
+SELECT count(*) FROM read_ags('test/sql/mini.ags', 'LOCA');
+----
+2
+
+# Born-typed: a 2DP heading is DOUBLE, an ID heading is VARCHAR.
+query T
+SELECT typeof(loca_gl) FROM read_ags('test/sql/mini.ags', 'LOCA') LIMIT 1;
+----
+DOUBLE
+
+query T
+SELECT typeof(loca_id) FROM read_ags('test/sql/mini.ags', 'LOCA') LIMIT 1;
+----
+VARCHAR
+
+# Born-typed value: the string "100.50" arrives as the double 100.5.
+query I
+SELECT (loca_gl = 100.5)::INTEGER FROM read_ags('test/sql/mini.ags', 'LOCA') WHERE loca_id = 'BH01';
+----
+1
+
+# Deterministic keys: every SAMP row joins to its LOCA via _parent_id = _id,
+# across two independent read_ags calls, with zero orphans.
+query I
+SELECT count(*) FROM read_ags('test/sql/mini.ags', 'SAMP') s
+JOIN read_ags('test/sql/mini.ags', 'LOCA') l ON s._parent_id = l._id;
+----
+3
+
+query I
+SELECT count(*) FROM read_ags('test/sql/mini.ags', 'SAMP') s
+LEFT JOIN read_ags('test/sql/mini.ags', 'LOCA') l ON s._parent_id = l._id
+WHERE l._id IS NULL;
+----
+0
+
+# Metadata: 3 groups; LOCA's parent is PROJ.
+query I
+SELECT count(*) FROM ags_groups('test/sql/mini.ags');
+----
+3
+
+query T
+SELECT parent FROM ags_groups('test/sql/mini.ags') WHERE "group" = 'LOCA';
+----
+PROJ
+
+# ags_relationships: SAMP's parent is LOCA, sharing LOCA_ID.
+query T
+SELECT parent FROM ags_relationships() WHERE child = 'SAMP';
+----
+LOCA
+
+# ags_validate runs and every severity is from the known set (no bad severities).
+query I
+SELECT count(*) FROM ags_validate('test/sql/mini.ags')
+WHERE severity NOT IN ('error', 'warning', 'fyi');
+----
+0
