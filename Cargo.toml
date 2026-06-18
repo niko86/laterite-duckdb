@@ -41,9 +41,12 @@ laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core" }
 laterite-types = { path = "laterite/rust-packages/laterite-types" }
 laterite-ags4-validator = { path = "laterite/rust-packages/laterite-ags4-validator" }
 serde_json = "1"
-# `duckdb-1-5` enables quack-rs's file_system/client_context modules (the VFS read
-# path). Pinned to the DuckDB 1.5.3 line to match the community-extensions target.
+# `duckdb-1-5` enables quack-rs's file_system/client_context modules (the VFS read path).
 quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
+# Pinned to the DuckDB 1.5.3 ABI line for native (the unstable C API is version-
+# exact). NOTE: DuckDB-WASM is on 1.5.1 and needs the 1.5.1 ABI — that can't share
+# one manifest with native's 1.5.3 (cargo unifies the 1.x version), so wasm is
+# excluded for distribution until DuckDB-WASM reaches 1.5.3. See wasm-support branch.
 libduckdb-sys = { version = "~1.10503", features = ["loadable-extension"] }
 
 [dev-dependencies]
