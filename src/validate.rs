@@ -1,17 +1,17 @@
-//! `ags_validate(path[, edition])` — opt-in AGS4 validation as a queryable table.
+//! `validate_ags(path[, edition])` — opt-in AGS4 validation as a queryable table.
 //!
 //! Wraps the clean-room `laterite-ags4-validator` (`check_file`). One row per
 //! finding: `(rule, line, group, severity, desc)`. This is **never** a gate on
 //! `read_ags` — reads assume the file is valid and only surface *structural*
-//! malformation; call `ags_validate` explicitly when you want the full rule
+//! malformation; call `validate_ags` explicitly when you want the full rule
 //! check. There is no repair surface (mutation stays in `lat-check`/the library).
 //!
 //! The edition is auto-detected from `TRAN_AGS` by default; the optional
 //! `edition` **named** parameter forces a bundled dictionary edition regardless
 //! (e.g. to check a file's forward/backward compatibility against a specific
 //! schema):
-//!   - `ags_validate(path)`                 — auto-detect from `TRAN_AGS`.
-//!   - `ags_validate(path, edition := '4.2')` — force '4.0.3'/'4.0.4'/'4.1'/
+//!   - `validate_ags(path)`                 — auto-detect from `TRAN_AGS`.
+//!   - `validate_ags(path, edition := '4.2')` — force '4.0.3'/'4.0.4'/'4.1'/
 //!     '4.1.1'/'4.2'. (Named, not a 2nd positional, because DuckDB has no
 //!     same-name table-function overloads — see `rows::register_rows`.)
 
@@ -26,7 +26,7 @@ use super::rows::{Cell, register_rows};
 pub fn register(con: &Connection) -> ExtResult<()> {
     register_rows(
         con,
-        "ags_validate",
+        "validate_ags",
         1,
         &[("edition", TypeId::Varchar)],
         vec![
@@ -63,7 +63,7 @@ fn parse_edition(s: &str) -> Result<DictVersion, ExtensionError> {
         "4.1.1" => Ok(DictVersion::V4_1_1),
         "4.2" => Ok(DictVersion::V4_2),
         other => Err(ExtensionError::new(format!(
-            "ags_validate: unknown edition '{other}'; expected one of 4.0.3, 4.0.4, 4.1, 4.1.1, 4.2"
+            "validate_ags: unknown edition '{other}'; expected one of 4.0.3, 4.0.4, 4.1, 4.1.1, 4.2"
         ))),
     }
 }
@@ -71,7 +71,7 @@ fn parse_edition(s: &str) -> Result<DictVersion, ExtensionError> {
 /// Run the validator and flatten its findings into output rows.
 fn run(path: &str, opts: &CheckOptions) -> Result<Vec<Vec<Cell>>, ExtensionError> {
     let findings = check_file(Path::new(path), opts)
-        .map_err(|e| ExtensionError::new(format!("ags_validate: '{path}': {e}")))?;
+        .map_err(|e| ExtensionError::new(format!("validate_ags: '{path}': {e}")))?;
     let mut out = Vec::new();
     // Findings is a BTreeMap<rule, Vec<Finding>> — already deterministic.
     for (rule, items) in &findings {

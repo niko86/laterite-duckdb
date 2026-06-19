@@ -13,11 +13,11 @@
 //! outside the AGS dictionary (passthrough/custom) returns a clear bind error
 //! for now.
 //!
-//! `read_ags_text(content, group)` is a STABLE-API experiment: it takes the
-//! AGS4 file's text as a VARCHAR argument (e.g. from DuckDB's built-in
-//! `read_text`) instead of reading a path via the VFS — so it needs no unstable
-//! C API. PROTOTYPE to check whether the content arg reaches bind (table-fn args
-//! must be constant-foldable at bind, where the schema is decided).
+//! `read_ags_text(content, group)` is the content variant: it takes the AGS4
+//! file's text as a VARCHAR argument (e.g. AGS already in a column, or from
+//! DuckDB's built-in `read_text`) instead of a path — handy when the data isn't a
+//! file you can hand the VFS. Table-fn args are constant-folded at bind (where the
+//! schema is decided), so the content must be constant there.
 
 use std::collections::HashMap;
 
@@ -50,8 +50,7 @@ pub struct ReadAgsState {
     cursor: usize,
 }
 
-/// Build `read_ags(path, group)` (VFS path reader; uses the unstable C API).
-#[cfg(feature = "vfs")]
+/// Build `read_ags(path, group)` — the VFS path reader (local / http(s):// / s3://).
 pub fn register(con: &Connection) -> ExtResult<()> {
     let builder = TableFunctionBuilder::new("read_ags")
         .param(TypeId::Varchar) // path
@@ -76,7 +75,6 @@ pub fn register_text(con: &Connection) -> ExtResult<()> {
 }
 
 /// bind (path): read params, slurp + parse the file via the VFS, then plan.
-#[cfg(feature = "vfs")]
 fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     // SAFETY: both are declared `Varchar` positional params, so DuckDB
     // guarantees they're present and string-valued during bind.
@@ -94,8 +92,8 @@ fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
 }
 
 /// bind (text): the AGS4 content arrives as a VARCHAR — parse it directly, no
-/// VFS, no unstable API. This is the bit under test: does the content argument
-/// reach bind as a constant?
+/// VFS needed. The content must be constant-foldable at bind (where the schema
+/// is decided).
 fn bind_text(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     let content = unsafe { info.get_parameter_value(0) }.as_str()?;
     let group = unsafe { info.get_parameter_value(1) }

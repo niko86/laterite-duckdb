@@ -144,10 +144,10 @@ fn read_ags_typed_and_keyed() {
         "shared_keys should contain LOCA_ID, got {samp_rel}"
     );
 
-    // ags_validate (opt-in): mini.ags lacks a TRAN group etc., so it has
+    // validate_ags (opt-in): mini.ags lacks a TRAN group etc., so it has
     // findings; every severity is from the known set.
     let n_findings: i64 = db
-        .query_one(&format!("SELECT count(*) FROM ags_validate('{ags}')"))
+        .query_one(&format!("SELECT count(*) FROM validate_ags('{ags}')"))
         .unwrap();
     assert!(
         n_findings > 0,
@@ -155,25 +155,25 @@ fn read_ags_typed_and_keyed() {
     );
     let bad_sev: i64 = db
         .query_one(&format!(
-            "SELECT count(*) FROM ags_validate('{ags}') WHERE severity NOT IN ('error','warning','fyi')"
+            "SELECT count(*) FROM validate_ags('{ags}') WHERE severity NOT IN ('error','warning','fyi')"
         ))
         .unwrap();
     assert_eq!(bad_sev, 0, "severities must be error/warning/fyi");
 
-    // ags_validate(path, edition := ...): the optional named param forces a
+    // validate_ags(path, edition := ...): the optional named param forces a
     // bundled dictionary edition. It still yields findings with valid severities.
     let forced_findings: i64 = db
         .query_one(&format!(
-            "SELECT count(*) FROM ags_validate('{ags}', edition := '4.2')"
+            "SELECT count(*) FROM validate_ags('{ags}', edition := '4.2')"
         ))
         .unwrap();
     assert!(
         forced_findings > 0,
-        "ags_validate(path, edition := '4.2') should still produce findings, got {forced_findings}"
+        "validate_ags(path, edition := '4.2') should still produce findings, got {forced_findings}"
     );
     let forced_bad_sev: i64 = db
         .query_one(&format!(
-            "SELECT count(*) FROM ags_validate('{ags}', edition := '4.2') WHERE severity NOT IN ('error','warning','fyi')"
+            "SELECT count(*) FROM validate_ags('{ags}', edition := '4.2') WHERE severity NOT IN ('error','warning','fyi')"
         ))
         .unwrap();
     assert_eq!(forced_bad_sev, 0, "forced-edition severities must be valid");
