@@ -23,6 +23,26 @@ use quack_rs::client_context::ClientContext;
 use quack_rs::file_system::{FileOpenOptions, FileSystem};
 use quack_rs::prelude::ExtensionError;
 
+/// Default ceiling on one file's reported/read size — generous for any real AGS
+/// delivery (these run MB to low-GB), low enough to bound a hostile remote
+/// `Content-Length` to a controlled, finite read. Override via
+/// `LATERITE_AGS_MAX_FILE_BYTES`.
+const DEFAULT_MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024; // 4 GiB
+/// Cap on the *up-front* buffer reserve so an over-reported size can't force a
+/// huge allocation before a single byte arrives; the buffer grows from here as
+/// bytes actually come in.
+const INITIAL_RESERVE_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB
+/// Read granularity for the incremental slurp.
+const READ_CHUNK_BYTES: usize = 1024 * 1024; // 1 MiB
+
+/// The per-file size ceiling, env-overridable.
+fn max_file_bytes() -> u64 {
+    std::env::var("LATERITE_AGS_MAX_FILE_BYTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MAX_FILE_BYTES)
+}
+
 /// Read + parse the AGS4 file at `path` through the DuckDB VFS bound to `ctx`,
 /// memoised by `(path, size)`. Structural malformation surfaces here (the parser
 /// must structurally parse to produce rows at all) with a message pointing at
@@ -57,38 +77,50 @@ pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, E
         )));
     }
     let size = raw_size as u64;
+    // The reported size is a HINT (a remote HEAD's `Content-Length` is the
+    // server's word). Reject an absurd one up front so it can neither key the
+    // cache nor drive an allocation.
+    let max = max_file_bytes();
+    if size > max {
+        return Err(ExtensionError::new(format!(
+            "read_ags: '{path}' reports {size} bytes, over the {max}-byte limit (raise LATERITE_AGS_MAX_FILE_BYTES if this is a genuine file)"
+        )));
+    }
 
     super::cache::get_or_try_insert(path, size, || {
-        // Miss only: slurp the whole file. Reject a size too large for this
-        // platform's address space up front rather than letting `as usize` wrap
-        // (32-bit) and read a silently-truncated fragment.
-        let n = usize::try_from(size).map_err(|_| {
-            ExtensionError::new(format!(
-                "read_ags: '{path}' is {size} bytes — too large to read on this platform"
-            ))
-        })?;
-        let mut buf = vec![0u8; n];
-        let mut filled = 0;
-        while filled < n {
-            let got = handle.read(&mut buf[filled..]).map_err(|e| {
+        // Miss only: read the file incrementally into a growable buffer. We do
+        // NOT pre-allocate the reported size — a hostile/over-reported size would
+        // force a huge up-front allocation — and we re-check the running total
+        // against the ceiling so a stream that delivers MORE than it claimed
+        // can't OOM us either.
+        let mut buf: Vec<u8> = Vec::with_capacity(size.min(INITIAL_RESERVE_BYTES) as usize);
+        let mut chunk = vec![0u8; READ_CHUNK_BYTES];
+        loop {
+            let got = handle.read(&mut chunk).map_err(|e| {
                 ExtensionError::new(format!(
                     "read_ags: read error on '{path}': {}",
                     e.message().unwrap_or_else(|| "unknown error".into())
                 ))
             })?;
             if got == 0 {
-                break; // EOF before the reported size — surfaced as a short read below.
+                break; // EOF
             }
-            filled += got;
+            if buf.len() as u64 + got as u64 > max {
+                return Err(ExtensionError::new(format!(
+                    "read_ags: '{path}' exceeds the {max}-byte limit while reading (raise LATERITE_AGS_MAX_FILE_BYTES if this is a genuine file)"
+                )));
+            }
+            buf.extend_from_slice(&chunk[..got]);
         }
-        // A short read (EOF before the reported size — a remote stream cut off, or
-        // the file shrank under us) must NOT be cached as the whole file: the
-        // parser would accept the truncated bytes as fewer groups, and that partial
-        // parse would be pinned under the full-size key with no way to bust it.
-        // Erroring leaves nothing cached, so the next call retries.
-        if filled < n {
+        // A short read (fewer bytes arrived than the file claimed — a remote
+        // stream cut off, or the file shrank under us) must NOT be cached as the
+        // whole file: the parser would accept the truncated bytes as fewer groups,
+        // and that partial parse would be pinned under the full-size key with no
+        // way to bust it. Erroring leaves nothing cached, so the next call retries.
+        if (buf.len() as u64) < size {
             return Err(ExtensionError::new(format!(
-                "read_ags: short read on '{path}' (got {filled} of {n} bytes); the file may have changed underfoot — retry"
+                "read_ags: short read on '{path}' (got {} of {size} bytes); the file may have changed underfoot — retry",
+                buf.len()
             )));
         }
         read_ags4_bytes(&buf).map_err(|e| {
