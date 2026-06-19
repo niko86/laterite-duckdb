@@ -46,13 +46,27 @@ pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, E
                 e.message().unwrap_or_else(|| "unknown error".into())
             ))
         })?;
-    // `size()` is the file's total length (a HEAD for remote).
-    let size = handle.size().max(0) as u64;
+    // `size()` is the file's total length (a HEAD for remote); it returns i64
+    // with a negative value signalling error/unknown. Treat that as a failure
+    // rather than clamping to 0 — clamping would parse + CACHE the file as empty
+    // and mask the real VFS error under the (path, 0) key.
+    let raw_size = handle.size();
+    if raw_size < 0 {
+        return Err(ExtensionError::new(format!(
+            "read_ags: cannot determine the size of '{path}' (filesystem returned {raw_size})"
+        )));
+    }
+    let size = raw_size as u64;
 
     super::cache::get_or_try_insert(path, size, || {
-        // Miss only: slurp the whole file. A single `read` may return short, so
-        // loop until the buffer is filled or we hit EOF.
-        let n = size as usize;
+        // Miss only: slurp the whole file. Reject a size too large for this
+        // platform's address space up front rather than letting `as usize` wrap
+        // (32-bit) and read a silently-truncated fragment.
+        let n = usize::try_from(size).map_err(|_| {
+            ExtensionError::new(format!(
+                "read_ags: '{path}' is {size} bytes — too large to read on this platform"
+            ))
+        })?;
         let mut buf = vec![0u8; n];
         let mut filled = 0;
         while filled < n {
@@ -63,11 +77,20 @@ pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, E
                 ))
             })?;
             if got == 0 {
-                break; // EOF before the reported size — truncate to what arrived.
+                break; // EOF before the reported size — surfaced as a short read below.
             }
             filled += got;
         }
-        buf.truncate(filled);
+        // A short read (EOF before the reported size — a remote stream cut off, or
+        // the file shrank under us) must NOT be cached as the whole file: the
+        // parser would accept the truncated bytes as fewer groups, and that partial
+        // parse would be pinned under the full-size key with no way to bust it.
+        // Erroring leaves nothing cached, so the next call retries.
+        if filled < n {
+            return Err(ExtensionError::new(format!(
+                "read_ags: short read on '{path}' (got {filled} of {n} bytes); the file may have changed underfoot — retry"
+            )));
+        }
         read_ags4_bytes(&buf).map_err(|e| {
             ExtensionError::new(format!(
                 "read_ags: '{path}' did not parse as AGS4 ({e}); the file may be invalid — validate/repair it first"
