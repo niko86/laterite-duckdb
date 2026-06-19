@@ -10,63 +10,41 @@
 //! JOIN read_ags('site.ags','LOCA') l ON s._parent_id = l._id;
 //! ```
 //!
-//! Built on the **C Extension API** via the quack-rs SDK (forward-compatible
-//! ABI, zero C++). It reuses the pure Rust engine wholesale: `laterite-ags4-core`'s
-//! AGS4 codec + deterministic-key [`keychain`](laterite_ags4_core::keychain) and
-//! `laterite-types`' single typing authority.
+//! Built on the **C Extension API** via the quack-rs SDK (zero C++). It reuses the
+//! pure Rust engine wholesale: `laterite-ags4-core`'s AGS4 codec + deterministic-key
+//! [`keychain`](laterite_ags4_core::keychain) and `laterite-types`' single typing
+//! authority.
 //!
-//! P1 surface: `read_ags(path, group)` over local files. Metadata functions
-//! (`ags_groups`/`ags_headings`/`ags_dictionary`/`ags_relationships`),
-//! editions, validation, remote/httpfs, and persistence land in later phases.
+//! **Native-only.** The path/remote readers use DuckDB's filesystem (the VFS), which
+//! is the version-exact C API line — so the extension is rebuilt against each DuckDB
+//! release (community-extensions' build matrix does this). It is NOT built for
+//! DuckDB-WASM (which lags this ABI); browser SQL-over-AGS is served by the dedicated
+//! `laterite-ags4-wasm` package.
+//!
+//! Surface: `read_ags(path, group)` / `read_ags_text(content, group)`; metadata
+//! (`ags_groups`/`ags_headings`/`ags_dictionary`/`ags_relationships`); `validate_ags`;
+//! `load_ags_script`; local + `http(s)://` + `s3://` (with `LOAD httpfs`).
 
 use quack_rs::prelude::*;
 
-// `#[path]` so submodules resolve from `src/` whether lib.rs is the native crate
-// root OR re-included as `mod lib;` by the wasm shim (src/wasm_lib.rs). Without
-// it the wasm build looks for `src/lib/*.rs`. Paired with the submodules' `super::`
-// imports, this makes lib.rs compile in both contexts.
-#[path = "dict_fns.rs"]
-mod dict_fns;
-#[path = "read_ags.rs"]
-mod read_ags;
-#[path = "rows.rs"]
-mod rows;
-#[path = "typing.rs"]
-mod typing;
-
-// VFS / path-based readers — compiled only with the `vfs` feature (default).
-// They use DuckDB's virtual filesystem (the unstable C API), so they're absent
-// from a stable `--no-default-features` build.
-#[cfg(feature = "vfs")]
-#[path = "cache.rs"]
 mod cache;
-#[cfg(feature = "vfs")]
-#[path = "load.rs"]
+mod dict_fns;
 mod load;
-#[cfg(feature = "vfs")]
-#[path = "meta.rs"]
 mod meta;
-#[cfg(feature = "vfs")]
-#[path = "source.rs"]
+mod read_ags;
+mod rows;
 mod source;
-#[cfg(feature = "vfs")]
-#[path = "validate.rs"]
+mod typing;
 mod validate;
 
 /// Register every function this extension provides.
 fn register(con: &Connection) -> ExtResult<()> {
-    // Stable-API functions — present in every build, including the stable wasm one.
+    read_ags::register(con)?; // read_ags(path, group)
     read_ags::register_text(con)?; // read_ags_text(content, group)
+    meta::register(con)?; // ags_groups, ags_headings
+    validate::register(con)?; // validate_ags(path)
+    load::register(con)?; // load_ags_script(path)
     dict_fns::register(con)?; // ags_dictionary, ags_relationships
-
-    // Path-based readers via the VFS (unstable C API) — `vfs` feature only.
-    #[cfg(feature = "vfs")]
-    {
-        read_ags::register(con)?; // read_ags(path, group)
-        meta::register(con)?; // ags_groups, ags_headings
-        validate::register(con)?; // ags_validate(path)
-        load::register(con)?; // load_ags_script(path)
-    }
     Ok(())
 }
 

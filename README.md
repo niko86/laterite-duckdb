@@ -44,7 +44,7 @@ SELECT loca_id FROM read_ags('s3://bucket/site.ags', 'LOCA');
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
 | `ags_dictionary()` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph |
-| `ags_validate(path[, edition := '4.2'])` | opt-in AGS4 rule check; never gates a read |
+| `validate_ags(path[, edition := '4.2'])` | opt-in AGS4 rule check; never gates a read |
 | `load_ags_script(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |
 
 Paths go through DuckDB's filesystem, so local files, `http(s)://`, and `s3://`
