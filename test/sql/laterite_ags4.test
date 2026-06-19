@@ -64,9 +64,9 @@ SELECT parent FROM ags_relationships() WHERE child = 'SAMP';
 ----
 LOCA
 
-# ags_validate runs and every severity is from the known set (no bad severities).
+# validate_ags runs and every severity is from the known set (no bad severities).
 query I
-SELECT count(*) FROM ags_validate('test/sql/mini.ags')
+SELECT count(*) FROM validate_ags('test/sql/mini.ags')
 WHERE severity NOT IN ('error', 'warning', 'fyi');
 ----
 0

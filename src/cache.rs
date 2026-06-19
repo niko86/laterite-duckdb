@@ -37,14 +37,21 @@ use quack_rs::prelude::ExtensionError;
 /// notebook kernel without unbounded growth on a long session.
 const DEFAULT_CAP_BYTES: usize = 256 * 1024 * 1024;
 
+/// Floor charged per entry so a zero-byte file (whose file-size cost is 0) still
+/// counts against the cap — otherwise an unbounded number of distinct empty-file
+/// keys could accumulate invisibly to a byte cap. Approximates an entry's own
+/// structural overhead (key string + map slot + the empty parsed struct).
+const MIN_ENTRY_COST: usize = 4 * 1024;
+
 /// Cache key: the file path plus its byte size (the change detector).
 type Key = (String, u64);
 
 struct Entry {
     parsed: Arc<ParsedAgs4>,
-    /// Cost charged against the cap — the source file's byte size (predictable
-    /// and what the env knob implies; the parsed form is a few × larger but the
-    /// file size is the stable, IO-free proxy).
+    /// Cost charged against the cap — the source file's byte size floored at
+    /// `MIN_ENTRY_COST` (predictable and what the env knob implies; the parsed
+    /// form is a few × larger but the file size is the stable, IO-free proxy, and
+    /// the floor keeps zero-byte files countable).
     cost: usize,
     /// LRU recency stamp — the value of `clock` at last access. Higher = newer.
     tick: u64,
@@ -144,7 +151,7 @@ where
     let mut c = lock();
     c.clock += 1;
     let tick = c.clock;
-    let cost = size as usize;
+    let cost = (size as usize).max(MIN_ENTRY_COST);
     // A concurrent first-touch may have inserted the same key meanwhile; replace
     // it (last writer wins) and reconcile the byte total against the old cost.
     if let Some(old) = c.map.insert(

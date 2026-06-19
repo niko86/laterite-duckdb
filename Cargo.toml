@@ -11,7 +11,7 @@
 # repo points them at the mirror submodule, as below.
 [package]
 name = "laterite-duckdb"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.87"      # quack-rs MSRV
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
@@ -25,15 +25,6 @@ publish = false
 name = "laterite_ags4"
 crate-type = ["cdylib"]
 
-# WASM build target. extension-ci-tools compiles the wasm extension as
-# `cargo build --target wasm32-unknown-emscripten --example laterite_ags4`, so the
-# wasm entry is a staticlib [[example]] that re-includes lib.rs (src/wasm_lib.rs).
-# Builds only on demand (--example), so the native cdylib build is unaffected.
-[[example]]
-name = "laterite_ags4"
-crate-type = ["staticlib"]
-path = "src/wasm_lib.rs"
-
 [dependencies]
 # The four library crates, from the mirror submodule (laterite/ → niko86/laterite
 # pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.
@@ -41,25 +32,16 @@ laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core" }
 laterite-types = { path = "laterite/rust-packages/laterite-types" }
 laterite-ags4-validator = { path = "laterite/rust-packages/laterite-ags4-validator" }
 serde_json = "1"
-# quack-rs's `duckdb-1-5` (file_system/client_context = the VFS) is enabled by our
-# `vfs` feature (default), NOT here — so a `--no-default-features` build is
-# stable-API-only and forward-compatible (ships on lagging runtimes like wasm).
-quack-rs = { version = "0.14" }
-# Pinned to the DuckDB 1.5.3 ABI line for native (the unstable C API is version-
-# exact). NOTE: DuckDB-WASM is on 1.5.1 and needs the 1.5.1 ABI — that can't share
-# one manifest with native's 1.5.3 (cargo unifies the 1.x version), so wasm is
-# excluded for distribution until DuckDB-WASM reaches 1.5.3. See wasm-support branch.
+# quack-rs's `duckdb-1-5` feature exposes file_system/client_context = DuckDB's
+# VFS, which the path/remote readers (read_ags, ags_groups, validate_ags, …) need.
+# It's the version-exact C API line (pinned via libduckdb-sys below), so this is a
+# native extension — community-extensions rebuilds it against each DuckDB release.
+quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
+# Pinned to the DuckDB 1.5.3 ABI line. The VFS readers use the version-exact C API,
+# so the extension is rebuilt per DuckDB release (community-extensions' build matrix
+# does this). DuckDB-WASM is excluded — it lags this ABI; browser SQL-over-AGS is
+# served by the dedicated `laterite-ags4-wasm` package instead.
 libduckdb-sys = { version = "~1.10503", features = ["loadable-extension"] }
-
-[features]
-# `vfs` (default) = the path-based readers (read_ags, ags_groups, ags_headings,
-# ags_validate, load_ags_script) which read files through DuckDB's virtual
-# filesystem — the UNSTABLE C API, version-exact, so a native-only artifact.
-# Build WITHOUT it (`--no-default-features`) for a stable, forward-compatible
-# extension that ships everywhere incl. DuckDB-WASM: read_ags_text (content as a
-# VARCHAR arg) + ags_dictionary + ags_relationships, no VFS.
-default = ["vfs"]
-vfs = ["quack-rs/duckdb-1-5"]
 
 [dev-dependencies]
 # In-process E2E (LOAD the built .duckdb_extension into a bundled DuckDB). Dev-only.
