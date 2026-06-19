@@ -85,3 +85,35 @@ chr(10) ||
 '"DATA","BH01","55.20"' || chr(10) || '"DATA","BH02","48.30"', 'LOCA');
 ----
 2	DOUBLE
+
+# --- parse cache (P1) -----------------------------------------------------
+# The cache is transparent: every read_ags / ags_groups / load_ags_script call in
+# this file re-resolves the same path, so the whole suite already exercises cache
+# hits after the first parse. These pin the behaviour the cache is meant to keep
+# correct while making it a single parse.
+
+# Three separate reads of one file in one statement — each is its own read_parsed
+# call (first parses, the rest hit the cache) — still return the right per-group
+# row counts.
+query III
+SELECT
+  (SELECT count(*) FROM read_ags('test/sql/mini.ags', 'PROJ')),
+  (SELECT count(*) FROM read_ags('test/sql/mini.ags', 'LOCA')),
+  (SELECT count(*) FROM read_ags('test/sql/mini.ags', 'SAMP'));
+----
+1	2	3
+
+# load_ags_script: 8 statements for mini.ags — PROJ (table + _id index) is root
+# so has no _parent_id index; LOCA and SAMP each add one (3 stmts each). Executing
+# the script runs one read_ags per group, all served by a single cached parse.
+query I
+SELECT count(*) FROM load_ags_script('test/sql/mini.ags');
+----
+8
+
+# The first generated statement is the PROJ table CTAS (file order); its body is
+# the now-cache-backed read_ags.
+query T
+SELECT stmt FROM load_ags_script('test/sql/mini.ags') WHERE seq = 0;
+----
+CREATE TABLE ags_proj AS SELECT * FROM read_ags('test/sql/mini.ags', 'PROJ');
