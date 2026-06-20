@@ -23,11 +23,15 @@
 //!
 //! Surface: `read_ags(path, group)` / `read_ags_text(content, group)`; metadata
 //! (`ags_groups`/`ags_headings`/`ags_dictionary`/`ags_relationships`); `validate_ags`;
-//! `load_ags_script`; local + `http(s)://` + `s3://` (with `LOAD httpfs`).
+//! `certify_ags` (mint a `.ags.idx` certificate; `read_ags`/`validate_ags` then take
+//! a sliced / skip-revalidation fast-path when a fresh one exists); `load_ags_script`;
+//! local + `http(s)://` + `s3://` (with `LOAD httpfs`).
 
 use quack_rs::prelude::*;
 
 mod cache;
+mod cert;
+mod certify;
 mod dict_fns;
 mod load;
 mod meta;
@@ -43,6 +47,7 @@ fn register(con: &Connection) -> ExtResult<()> {
     read_ags::register_text(con)?; // read_ags_text(content, group)
     meta::register(con)?; // ags_groups, ags_headings
     validate::register(con)?; // validate_ags(path)
+    certify::register(con)?; // certify_ags(path) → mint <path>.idx
     load::register(con)?; // load_ags_script(path)
     dict_fns::register(con)?; // ags_dictionary, ags_relationships
     Ok(())

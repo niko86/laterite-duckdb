@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use laterite_ags4_core::ags4_codec::{ParsedAgs4, read_ags4_bytes};
 use quack_rs::client_context::ClientContext;
-use quack_rs::file_system::{FileOpenOptions, FileSystem};
+use quack_rs::file_system::{FileHandle, FileOpenOptions, FileSystem};
 use quack_rs::prelude::ExtensionError;
 
 /// Default ceiling on one file's reported/read size — generous for any real AGS
@@ -50,6 +50,86 @@ fn max_file_bytes() -> u64 {
 pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, ExtensionError> {
     // Cheap open + size first: the size is the cache key, so a hit skips the
     // slurp + parse in the closure below entirely.
+    let (handle, size) = open_for_read(ctx, path)?;
+    super::cache::get_or_try_insert(path, size, || {
+        let buf = slurp(&handle, path, size)?;
+        read_ags4_bytes(&buf).map_err(|e| {
+            ExtensionError::new(format!(
+                "read_ags: '{path}' did not parse as AGS4 ({e}); the file may be invalid — validate/repair it first"
+            ))
+        })
+    })
+}
+
+/// Read the *raw bytes* of `path` through the VFS — the unparsed, **uncached**
+/// slurp behind the certificate path. `certify_ags` needs the exact source bytes
+/// to hash + index, and `validate_ags`'s cert fast-path needs them to confirm the
+/// SHA; both want the bytes themselves, not the parsed form (and a cert mint /
+/// one-shot verdict isn't a hot repeat-read, so it doesn't earn a cache slot).
+pub fn read_bytes(ctx: &ClientContext, path: &str) -> Result<Vec<u8>, ExtensionError> {
+    let (handle, size) = open_for_read(ctx, path)?;
+    slurp(&handle, path, size)
+}
+
+/// Write `data` to `path` through the VFS (create/truncate). The `.ags.idx`
+/// certificate is written this way so it lands wherever the source did — beside a
+/// local file, or via a writable VFS — rather than only ever on local disk.
+pub fn write_bytes(ctx: &ClientContext, path: &str, data: &[u8]) -> Result<(), ExtensionError> {
+    let fs = FileSystem::from_client_context(ctx).ok_or_else(|| {
+        ExtensionError::new(
+            "certify_ags: DuckDB did not provide a filesystem (requires DuckDB 1.5+)",
+        )
+    })?;
+    let c_path = CString::new(path).map_err(|_| {
+        ExtensionError::new(format!(
+            "certify_ags: path '{path}' contains an interior NUL byte"
+        ))
+    })?;
+    let handle = fs
+        .open(&c_path, &FileOpenOptions::write_create())
+        .map_err(|e| {
+            ExtensionError::new(format!(
+                "certify_ags: cannot open '{path}' for writing: {}",
+                e.message().unwrap_or_else(|| "unknown error".into())
+            ))
+        })?;
+    // `write` may make partial progress; loop until every byte is durably handed
+    // to the VFS, then sync so the sidecar is on disk before we report success.
+    let mut off = 0usize;
+    while off < data.len() {
+        let n = handle.write(&data[off..]).map_err(|e| {
+            ExtensionError::new(format!(
+                "certify_ags: write error on '{path}': {}",
+                e.message().unwrap_or_else(|| "unknown error".into())
+            ))
+        })?;
+        if n == 0 {
+            return Err(ExtensionError::new(format!(
+                "certify_ags: write to '{path}' stalled at {off} of {} bytes",
+                data.len()
+            )));
+        }
+        off += n;
+    }
+    handle.sync().map_err(|e| {
+        ExtensionError::new(format!(
+            "certify_ags: sync failed on '{path}': {}",
+            e.message().unwrap_or_else(|| "unknown error".into())
+        ))
+    })
+}
+
+/// Open `path` read-only through the VFS and resolve its size — the cheap
+/// `open` + `size()` (a `stat` locally, a `HEAD` remotely) every read does before
+/// committing to a slurp. A negative size is a VFS error/unknown, treated as a
+/// failure (not clamped to 0, which would mask it); an absurd reported size is
+/// rejected up front so it can neither key the cache nor drive an allocation.
+/// `pub(crate)` so the certificate slice path can reuse the same open + size +
+/// ceiling guard, then `seek` the returned handle to one group's byte range.
+pub(crate) fn open_for_read(
+    ctx: &ClientContext,
+    path: &str,
+) -> Result<(FileHandle, u64), ExtensionError> {
     let fs = FileSystem::from_client_context(ctx).ok_or_else(|| {
         ExtensionError::new("read_ags: DuckDB did not provide a filesystem (requires DuckDB 1.5+)")
     })?;
@@ -66,10 +146,6 @@ pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, E
                 e.message().unwrap_or_else(|| "unknown error".into())
             ))
         })?;
-    // `size()` is the file's total length (a HEAD for remote); it returns i64
-    // with a negative value signalling error/unknown. Treat that as a failure
-    // rather than clamping to 0 — clamping would parse + CACHE the file as empty
-    // and mask the real VFS error under the (path, 0) key.
     let raw_size = handle.size();
     if raw_size < 0 {
         return Err(ExtensionError::new(format!(
@@ -77,56 +153,47 @@ pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, E
         )));
     }
     let size = raw_size as u64;
-    // The reported size is a HINT (a remote HEAD's `Content-Length` is the
-    // server's word). Reject an absurd one up front so it can neither key the
-    // cache nor drive an allocation.
     let max = max_file_bytes();
     if size > max {
         return Err(ExtensionError::new(format!(
             "read_ags: '{path}' reports {size} bytes, over the {max}-byte limit (raise LATERITE_AGS_MAX_FILE_BYTES if this is a genuine file)"
         )));
     }
+    Ok((handle, size))
+}
 
-    super::cache::get_or_try_insert(path, size, || {
-        // Miss only: read the file incrementally into a growable buffer. We do
-        // NOT pre-allocate the reported size — a hostile/over-reported size would
-        // force a huge up-front allocation — and we re-check the running total
-        // against the ceiling so a stream that delivers MORE than it claimed
-        // can't OOM us either.
-        let mut buf: Vec<u8> = Vec::with_capacity(size.min(INITIAL_RESERVE_BYTES) as usize);
-        let mut chunk = vec![0u8; READ_CHUNK_BYTES];
-        loop {
-            let got = handle.read(&mut chunk).map_err(|e| {
-                ExtensionError::new(format!(
-                    "read_ags: read error on '{path}': {}",
-                    e.message().unwrap_or_else(|| "unknown error".into())
-                ))
-            })?;
-            if got == 0 {
-                break; // EOF
-            }
-            if buf.len() as u64 + got as u64 > max {
-                return Err(ExtensionError::new(format!(
-                    "read_ags: '{path}' exceeds the {max}-byte limit while reading (raise LATERITE_AGS_MAX_FILE_BYTES if this is a genuine file)"
-                )));
-            }
-            buf.extend_from_slice(&chunk[..got]);
+/// Slurp the whole file from `handle` into a buffer, with the same adversarial
+/// guards the cached parse relies on: grow from a bounded reserve (never trust the
+/// reported size as an up-front allocation), re-check the running total against the
+/// ceiling (a stream can deliver more than it claimed), and reject a short read
+/// (fewer bytes than claimed → the file changed underfoot) rather than return a
+/// silently-truncated buffer.
+fn slurp(handle: &FileHandle, path: &str, size: u64) -> Result<Vec<u8>, ExtensionError> {
+    let max = max_file_bytes();
+    let mut buf: Vec<u8> = Vec::with_capacity(size.min(INITIAL_RESERVE_BYTES) as usize);
+    let mut chunk = vec![0u8; READ_CHUNK_BYTES];
+    loop {
+        let got = handle.read(&mut chunk).map_err(|e| {
+            ExtensionError::new(format!(
+                "read_ags: read error on '{path}': {}",
+                e.message().unwrap_or_else(|| "unknown error".into())
+            ))
+        })?;
+        if got == 0 {
+            break; // EOF
         }
-        // A short read (fewer bytes arrived than the file claimed — a remote
-        // stream cut off, or the file shrank under us) must NOT be cached as the
-        // whole file: the parser would accept the truncated bytes as fewer groups,
-        // and that partial parse would be pinned under the full-size key with no
-        // way to bust it. Erroring leaves nothing cached, so the next call retries.
-        if (buf.len() as u64) < size {
+        if buf.len() as u64 + got as u64 > max {
             return Err(ExtensionError::new(format!(
-                "read_ags: short read on '{path}' (got {} of {size} bytes); the file may have changed underfoot — retry",
-                buf.len()
+                "read_ags: '{path}' exceeds the {max}-byte limit while reading (raise LATERITE_AGS_MAX_FILE_BYTES if this is a genuine file)"
             )));
         }
-        read_ags4_bytes(&buf).map_err(|e| {
-            ExtensionError::new(format!(
-                "read_ags: '{path}' did not parse as AGS4 ({e}); the file may be invalid — validate/repair it first"
-            ))
-        })
-    })
+        buf.extend_from_slice(&chunk[..got]);
+    }
+    if (buf.len() as u64) < size {
+        return Err(ExtensionError::new(format!(
+            "read_ags: short read on '{path}' (got {} of {size} bytes); the file may have changed underfoot — retry",
+            buf.len()
+        )));
+    }
+    Ok(buf)
 }
