@@ -1,0 +1,86 @@
+# PR-tier CI for the `laterite_ags4` DuckDB extension.
+#
+# Builds the loadable extension + runs its tests on every PR / push to main. The
+# full per-DuckDB-version platform matrix is community-extensions' job on release
+# — this is just the per-change dev gate.
+#
+# Runner: GitHub-hosted `ubuntu-latest`. This repo is PUBLIC, so standard runners are
+# FREE + unlimited (GitHub Actions is free for public repos on standard runners), and
+# a fork PR runs on a throwaway VM — never on owner hardware, network, or cache.
+# Defense-in-depth retained on top: the fork-approval gate (Settings → Actions →
+# "Require approval for all external contributors"), a read-only default GITHUB_TOKEN,
+# and the branch ruleset (require-PR + block force-push/deletions).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: build + test only, no writes.
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The `laterite` submodule pins the public mirror (niko86/laterite) for the
+      # library crates the extension path-deps — public, so no token needed.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      # Cheap fail-fast before any build.
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      # --- loadable build FIRST, then freeze ---
+      # The extension is built two ways here that CAN'T share a target/: the
+      # *loadable-extension* libduckdb-sys (the real artifact) and the *bundled-test*
+      # one (the in-process host DuckDB the e2e loads into) are mutually exclusive,
+      # so cargo rebuilds libduckdb-sys when you switch. Do all the loadable work
+      # first and FREEZE the artifact, then all the bundled-test work (clippy + test
+      # + e2e) consecutively — one loadable build + one bundled build, not three.
+      #
+      # `make configure` = python venv + the matching DuckDB for sqllogictest;
+      # `make debug` = the loadable cdylib + metadata; `make test_debug` = sqllogictest.
+      - name: make configure
+        run: make configure
+
+      - name: make debug (loadable cdylib)
+        run: make debug
+
+      - name: make test (sqllogictest)
+        run: make test_debug
+
+      - name: freeze the loadable artifact (before the bundled rebuild clobbers it)
+        run: |
+          mkdir -p "$RUNNER_TEMP/frozen"
+          cp "$(pwd)/target/debug/liblaterite_ags4.so" "$RUNNER_TEMP/frozen/liblaterite_ags4.so"
+
+      # --- bundled-test work (one libduckdb-sys rebuild, shared) ---
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (unit + in-process e2e self-skip)
+        run: cargo test
+
+      # real-extension e2e: LOAD the frozen loadable cdylib into the in-process
+      # (bundled-test) DuckDB and exercise read_ags + the cert lifecycle.
+      - name: real-extension e2e
+        run: |
+          LATERITE_AGS4_DYLIB="$RUNNER_TEMP/frozen/liblaterite_ags4.so" \
+            cargo test --test e2e -- --nocapture
