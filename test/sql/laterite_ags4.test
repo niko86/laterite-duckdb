@@ -117,3 +117,20 @@ query T
 SELECT stmt FROM load_ags_script('test/sql/mini.ags') WHERE seq = 0;
 ----
 CREATE TABLE ags_proj AS SELECT * FROM read_ags('test/sql/mini.ags', 'PROJ');
+
+# --- certify_ags (PR D): mint a `.ags.idx` certificate for a clean file ---
+# The positive mint path writes a sibling .idx, so the full lifecycle (mint →
+# sliced read → skipped re-validation → freshness gate) lives in the temp-isolated
+# Rust e2e (tests/e2e.rs::cert_lifecycle) to keep the repo tree clean. Here we only
+# assert the side-effect-FREE refusal path: an invalid file is never certified
+# (a certificate asserts clean), so nothing is written.
+query I
+SELECT certified::INTEGER FROM certify_ags('test/sql/mini.ags');
+----
+0
+
+# ...and it reports the error count that blocked the mint.
+query I
+SELECT (errors > 0)::INTEGER FROM certify_ags('test/sql/mini.ags');
+----
+1

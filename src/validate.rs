@@ -18,9 +18,10 @@
 use std::path::Path;
 
 use laterite_ags4_validator::findings::Severity;
-use laterite_ags4_validator::{CheckOptions, DictVersion, check_file};
+use laterite_ags4_validator::{CheckOptions, check_file};
 use quack_rs::prelude::*;
 
+use super::cert;
 use super::rows::{Cell, register_rows};
 
 pub fn register(con: &Connection) -> ExtResult<()> {
@@ -38,34 +39,32 @@ pub fn register(con: &Connection) -> ExtResult<()> {
         ],
         |bind| {
             let path = unsafe { bind.get_parameter_value(0) }.as_str()?;
-            // `edition` named param: absent → `as_str()` errors (null Value) →
-            // auto-detect; an explicit, non-blank value forces that edition.
-            let opts = match unsafe { bind.get_named_parameter_value("edition") }.as_str() {
-                Ok(e) if !e.trim().is_empty() => CheckOptions {
-                    dict_version: Some(parse_edition(&e)?),
+            // `edition` named param: absent → auto-detect from TRAN_AGS; an
+            // explicit, non-blank value forces that edition. The forced string is
+            // also what a cert must match to cover this request.
+            let forced = match unsafe { bind.get_named_parameter_value("edition") }.as_str() {
+                Ok(e) if !e.trim().is_empty() => Some(e.trim().to_string()),
+                _ => None,
+            };
+            // Certificate fast-path: a fresh cert from THIS engine whose profile
+            // covers the request already proves the file clean — return clean
+            // (zero findings) without re-running the rule pass over (potentially)
+            // hundreds of MB. `validate_ags` never runs Rule 20's on-disk half, so
+            // the request's `check_files` is false.
+            let ctx = unsafe { bind.get_client_context() };
+            if cert::clean_verdict_certified(&ctx, &path, false, forced.as_deref()) {
+                return Ok(Vec::new());
+            }
+            let opts = match &forced {
+                Some(e) => CheckOptions {
+                    dict_version: Some(cert::parse_edition(e)?),
                     ..CheckOptions::default()
                 },
-                _ => CheckOptions::default(),
+                None => CheckOptions::default(),
             };
             run(&path, &opts)
         },
     )
-}
-
-/// Map a user edition string to a bundled `DictVersion`, or a clear error
-/// listing the supported set. (The validator deliberately exposes no
-/// `FromStr` — the bundled set is small and fixed, so we match it here.)
-fn parse_edition(s: &str) -> Result<DictVersion, ExtensionError> {
-    match s.trim() {
-        "4.0.3" => Ok(DictVersion::V4_0_3),
-        "4.0.4" => Ok(DictVersion::V4_0_4),
-        "4.1" => Ok(DictVersion::V4_1),
-        "4.1.1" => Ok(DictVersion::V4_1_1),
-        "4.2" => Ok(DictVersion::V4_2),
-        other => Err(ExtensionError::new(format!(
-            "validate_ags: unknown edition '{other}'; expected one of 4.0.3, 4.0.4, 4.1, 4.1.1, 4.2"
-        ))),
-    }
 }
 
 /// Run the validator and flatten its findings into output rows.
