@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use laterite_ags4_core::ags4_codec::{ParsedAgs4, read_ags4_bytes};
+use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4, read_ags4_bytes};
 use laterite_ags4_core::keychain;
 use laterite_ags4_core::registry::registry;
 use laterite_types::parse_value;
@@ -74,7 +74,12 @@ pub fn register_text(con: &Connection) -> ExtResult<()> {
     unsafe { con.register_table(builder) }
 }
 
-/// bind (path): read params, slurp + parse the file via the VFS, then plan.
+/// bind (path): read params, then plan. **Certificate fast-path:** if a size-fresh
+/// `<path>.idx` indexes this group, range-read just that group's bytes (O(group),
+/// the cold single-group win — and a remote ranged-GET) instead of slurping +
+/// parsing the whole file. No usable cert (absent, size-stale, group not indexed)
+/// falls back to the cached whole-file parse — the validating, always-correct
+/// default.
 fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     // SAFETY: both are declared `Varchar` positional params, so DuckDB
     // guarantees they're present and string-valued during bind.
@@ -85,8 +90,11 @@ fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
         .to_uppercase();
 
     // SAFETY: `info` is a live bind-info; `get_client_context` yields the
-    // query's client context, from which `source` obtains the VFS.
+    // query's client context, from which `source`/`cert` obtain the VFS.
     let ctx = unsafe { info.get_client_context() };
+    if let Some(ags) = super::cert::sliced_group(&ctx, &path, &group) {
+        return plan_from_ags(info, &ags, &group);
+    }
     let parsed = super::source::read_parsed(&ctx, &path)?;
     plan(info, &parsed, &group)
 }
@@ -106,8 +114,10 @@ fn bind_text(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
     plan(info, &parsed, &group)
 }
 
-/// Shared planning: resolve the group, declare the typed output schema, and
-/// precompute the deterministic ids. Used by both the path and text binds.
+/// Shared planning over a whole parsed file: resolve the group (a helpful error
+/// listing what's present if absent), then plan from it. Used by the path and text
+/// binds; the certificate slice path calls [`plan_from_ags`] directly with the one
+/// group it sliced.
 fn plan(info: &BindInfo, parsed: &ParsedAgs4, group: &str) -> Result<ReadAgsState, ExtensionError> {
     let ags = parsed.get(group).ok_or_else(|| {
         ExtensionError::new(format!(
@@ -115,7 +125,17 @@ fn plan(info: &BindInfo, parsed: &ParsedAgs4, group: &str) -> Result<ReadAgsStat
             parsed.order.join(", ")
         ))
     })?;
+    plan_from_ags(info, ags, group)
+}
 
+/// Declare the typed output schema (the `_id`/`_parent_id` keys, then one column
+/// per heading typed from the file's own TYPE row) and precompute each row's
+/// deterministic ids, from a single already-resolved group.
+fn plan_from_ags(
+    info: &BindInfo,
+    ags: &AgsGroup,
+    group: &str,
+) -> Result<ReadAgsState, ExtensionError> {
     let reg = registry();
     let descriptor = reg.get(group).cloned().ok_or_else(|| {
         ExtensionError::new(format!(

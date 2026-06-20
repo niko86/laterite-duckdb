@@ -45,10 +45,31 @@ SELECT loca_id FROM read_ags('s3://bucket/site.ags', 'LOCA');
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
 | `ags_dictionary()` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph |
 | `validate_ags(path[, edition := '4.2'])` | opt-in AGS4 rule check; never gates a read |
+| `certify_ags(path[, edition := '4.2'])` | validate and, if clean, mint a `.ags.idx` **certificate** (a byte-offset index + validation provenance) beside the file; returns a one-row status (an invalid file is reported, not certified) |
 | `load_ags_script(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |
 
 Paths go through DuckDB's filesystem, so local files, `http(s)://`, and `s3://`
 (with `LOAD httpfs`) all work.
+
+### The `.ags.idx` certificate
+
+`certify_ags` writes a sibling `<file>.ags.idx` — a byte-offset index over each
+group's section plus a record of *who* validated the file clean (the engine, its
+version, the edition). It exists only for a file that validated clean, so two
+fast-paths then consult a fresh one automatically:
+
+- **`read_ags`** range-reads just the requested group's bytes (one `seek` + `read`,
+  local or remote) instead of slurping + parsing the whole file — the cold
+  single-group win, biggest on large deliveries.
+- **`validate_ags`** returns clean without re-running the rule pass.
+
+A *read* trusts a cheap **size** match (re-hashing a remote object to read one
+group would mean re-downloading it); a *verdict* (`validate_ags`) confirms the
+strong **SHA-256**. Any change to the file makes the certificate stale — it's then
+ignored and the validating whole-file path runs, so a stale `.ags.idx` can never
+serve wrong data. The certificate is a regenerable cache: delete it freely, or
+re-run `certify_ags`. Its format and checker identity match the `laterite` Python
+wheel's `Ags4File.certify()`, so a certificate minted by either is trusted by both.
 
 ## In the browser (DuckDB-WASM)
 
