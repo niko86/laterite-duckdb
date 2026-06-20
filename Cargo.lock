@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-duckdb"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "laterite-ags4-core",
  "laterite-ags4-validator",

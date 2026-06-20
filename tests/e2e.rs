@@ -210,6 +210,119 @@ fn read_ags_typed_and_keyed() {
     );
 }
 
+/// PR D: the `.ags.idx` certificate lifecycle — `certify_ags` mints, `read_ags`
+/// takes the sliced fast-path, `validate_ags` skips re-validation, and the
+/// freshness gate refuses a stale cert. Loads the real extension (gated on
+/// `LATERITE_AGS4_DYLIB`) and drives it all through SQL.
+#[test]
+fn cert_lifecycle() {
+    let Some(db) = load_extension() else {
+        eprintln!("skipping cert E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib");
+        return;
+    };
+    // Work on a temp COPY — the test mutates it (overwrite, mint a sibling
+    // .idx), and must never touch the committed fixture.
+    let dir = std::env::temp_dir().join(format!("laterite_ags4_cert_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp cert dir");
+    let clean = dir.join("clean.ags");
+    std::fs::copy(clean_fixture(), &clean).expect("copy clean.ags fixture");
+    let clean = clean.display().to_string();
+    let idx = format!("{clean}.idx");
+
+    // --- mint: a clean file certifies; 4 groups, no errors, an .idx appears ---
+    let certified: bool = db
+        .query_one(&format!("SELECT certified FROM certify_ags('{clean}')"))
+        .unwrap();
+    assert!(certified, "a clean file should certify");
+    let groups: i64 = db
+        .query_one(&format!("SELECT groups FROM certify_ags('{clean}')"))
+        .unwrap();
+    assert_eq!(groups, 4, "PROJ + TRAN + UNIT + TYPE");
+    let errors: i64 = db
+        .query_one(&format!("SELECT errors FROM certify_ags('{clean}')"))
+        .unwrap();
+    assert_eq!(errors, 0);
+
+    // the cert is a well-formed, cross-surface `.ags.idx`: version 1, this
+    // engine's identity, a 64-hex SHA — the SAME shape the Python wheel writes.
+    let cert_json = std::fs::read_to_string(&idx).expect("certify wrote <path>.idx");
+    assert!(
+        cert_json.contains("\"version\": 1"),
+        "cert json: {cert_json}"
+    );
+    assert!(
+        cert_json.contains("\"validator\": \"laterite_ags4\""),
+        "cert carries the engine identity: {cert_json}"
+    );
+
+    // --- consume (read): with a fresh cert present, read_ags slices one group's
+    // bytes; the result is identical to the whole-file read (the correctness
+    // guarantee — slice parity itself is exhaustively unit-tested in core). ---
+    let proj_rows: i64 = db
+        .query_one(&format!("SELECT count(*) FROM read_ags('{clean}','PROJ')"))
+        .unwrap();
+    assert_eq!(proj_rows, 1, "PROJ has one DATA row via the slice path");
+    let proj_id: String = db
+        .query_one(&format!("SELECT proj_id FROM read_ags('{clean}','PROJ')"))
+        .unwrap();
+    assert_eq!(proj_id, "P1");
+
+    // --- consume (validate): a fresh, matching cert means validate_ags returns
+    // clean without re-running the rule pass. (Clean either way, so this asserts
+    // the contract; the staleness case below proves the gate actually bites.) ---
+    let findings_fresh: i64 = db
+        .query_one(&format!("SELECT count(*) FROM validate_ags('{clean}')"))
+        .unwrap();
+    assert_eq!(findings_fresh, 0, "a clean certified file validates clean");
+
+    // --- refuse: a file WITH errors is not certified and writes no .idx ---
+    let mini = fixture().display().to_string();
+    let mini_certified: bool = db
+        .query_one(&format!("SELECT certified FROM certify_ags('{mini}')"))
+        .unwrap();
+    assert!(!mini_certified, "an invalid file must not certify");
+    let mini_errors: i64 = db
+        .query_one(&format!("SELECT errors FROM certify_ags('{mini}')"))
+        .unwrap();
+    assert!(mini_errors > 0, "the invalid file reports its error count");
+    assert!(
+        !std::path::Path::new(&format!("{mini}.idx")).exists(),
+        "no cert is written for an invalid file"
+    );
+
+    // --- freshness gate: overwrite the certified file with DIFFERENT, invalid
+    // content (size + SHA now differ) while its clean `.idx` still sits beside
+    // it. The cert must NOT be trusted: validate_ags re-runs and surfaces the new
+    // file's findings — observable proof the stale cert was rejected. ---
+    std::fs::write(&clean, std::fs::read(&mini).unwrap()).expect("overwrite clean.ags");
+    let findings_stale: i64 = db
+        .query_one(&format!("SELECT count(*) FROM validate_ags('{clean}')"))
+        .unwrap();
+    assert!(
+        findings_stale > 0,
+        "a size-changed file's stale cert is ignored; real findings surface ({findings_stale})"
+    );
+    // and the read path likewise ignores the stale cert: it reads the NEW content
+    // (mini.ags has a LOCA group; the original clean.ags did not).
+    let loca_now: i64 = db
+        .query_one(&format!("SELECT count(*) FROM read_ags('{clean}','LOCA')"))
+        .unwrap();
+    assert_eq!(
+        loca_now, 2,
+        "stale cert ignored — read sees the new content"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A complete, valid AGS4 4.2 file (PROJ + TRAN + UNIT + TYPE) that validates
+/// with zero findings — the precondition `certify_ags` requires. CRLF as the spec
+/// mandates; mirrors the Python cert suite's fixture so both surfaces certify the
+/// same bytes.
+fn clean_fixture() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clean.ags")
+}
+
 /// Footer + LOAD the built extension into a fresh unsigned in-memory DuckDB.
 /// `None` when `LATERITE_AGS4_DYLIB` is unset (test self-skips).
 fn load_extension() -> Option<InMemoryDb> {

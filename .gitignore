@@ -2,6 +2,9 @@
 *.duckdb
 *.wal
 build/
+# `.ags.idx` certificates are a regenerable cache (`certify_ags` / the cold-read
+# index), never source — keep them out of the tree.
+*.ags.idx
 # `make configure` writes a venv + generated platform/version files here — all
 # regenerated per build, never committed (the venv alone is ~100 MB).
 configure/
