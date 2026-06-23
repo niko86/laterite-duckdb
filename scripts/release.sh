@@ -40,17 +40,19 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ============================ CONFIG ========================================
 # --- per-release: edit these two each time ---
-VERSION="0.4.1"                          # NEW version. v0.4.0 is already tagged —
-                                         #   bump (default), OR VERSION=0.4.0 + FORCE_TAG=1.
-COMMIT_MSG="feat: native-only laterite_ags4 — rip out wasm, align vocab (v${VERSION})
+VERSION="0.5.0"                          # NEW version. v0.4.1 is the live community
+                                         #   release; the edition->dict_version break
+                                         #   warrants a minor bump (0.x semver).
+COMMIT_MSG="feat: validate_ags severity knobs + dict_version rename (v${VERSION})
 
-- Drop the wasm/stable-subset build: the [[example]] staticlib (wasm_lib.rs), the
-  vfs feature gate, every #[cfg(feature=vfs)], the #[path] module indirection, and
-  the Makefile wasm branch + link_wasm order-fix. The path/remote VFS readers (the
-  extension's value) are the version-exact C API; browser SQL-over-AGS is served by
-  the laterite-ags4-wasm package, so wasm is excluded for distribution.
-- Rename ags_validate -> validate_ags (verb-first action, like read_ags).
-- read_ags_text promoted from a wasm prototype to a real content-reader."
+- validate_ags gains boolean named params warnings:=true / fyi:=true (error-only by
+  default, matching the library + lat-check); either tier bypasses the cert fast-path
+  (a cert only vouches error-clean).
+- Rename the edition named param to dict_version on validate_ags + certify_ags (and
+  certify_ags's resolved-edition output column edition -> dict_version), aligning the
+  SQL surface with the rest of the suite. Clean rename, no alias.
+- Bump the bundled validator submodule so the WARNING-tier rules (Rule 18 DICT) are
+  present, so warnings:=true surfaces real findings."
 
 # --- stable settings (rarely change) ---
 EXT_DIR="$REPO_ROOT"                                  # this repo (derived)
