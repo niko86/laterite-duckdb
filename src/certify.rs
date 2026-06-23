@@ -1,4 +1,4 @@
-//! `certify_ags(path[, edition := '4.2'])` — validate an AGS4 file and, when it
+//! `certify_ags(path[, dict_version := '4.2'])` — validate an AGS4 file and, when it
 //! comes back clean, mint its `.ags.idx` **certificate** (a byte-offset index +
 //! the validation provenance) beside it. One-shot validate-then-mint, because SQL
 //! is stateless: there's no handle to validate first and certify after (the way
@@ -11,7 +11,7 @@
 //! ```sql
 //! SELECT certified, groups, message FROM certify_ags('site.ags');
 //! -- force the edition the cert is stamped + checked against:
-//! SELECT * FROM certify_ags('site.ags', edition := '4.2');
+//! SELECT * FROM certify_ags('site.ags', dict_version := '4.2');
 //! ```
 //!
 //! Validation reads the **local path** (the validator uses `std::fs`, exactly like
@@ -36,7 +36,7 @@ pub fn register(con: &Connection) -> ExtResult<()> {
         con,
         "certify_ags",
         1,
-        &[("edition", TypeId::Varchar)],
+        &[("dict_version", TypeId::Varchar)],
         vec![
             ("path", TypeId::Varchar),
             ("index_path", TypeId::Varchar),
@@ -45,14 +45,14 @@ pub fn register(con: &Connection) -> ExtResult<()> {
             ("errors", TypeId::BigInt),
             ("warnings", TypeId::BigInt),
             ("fyi", TypeId::BigInt),
-            ("edition", TypeId::Varchar),
+            ("dict_version", TypeId::Varchar),
             ("message", TypeId::Varchar),
         ],
         |bind| {
             let path = unsafe { bind.get_parameter_value(0) }.as_str()?;
-            // `edition` named param: absent → auto-detect from TRAN_AGS; an
+            // `dict_version` named param: absent → auto-detect from TRAN_AGS; an
             // explicit, non-blank value forces (and stamps) that edition.
-            let forced = match unsafe { bind.get_named_parameter_value("edition") }.as_str() {
+            let forced = match unsafe { bind.get_named_parameter_value("dict_version") }.as_str() {
                 Ok(e) if !e.trim().is_empty() => Some(cert::parse_edition(&e)?),
                 _ => None,
             };

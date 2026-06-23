@@ -1,0 +1,17 @@
+"GROUP","PROJ"
+"HEADING","PROJ_ID"
+"UNIT",""
+"TYPE","ID"
+"DATA","P1"
+
+"GROUP","TRAN"
+"HEADING","TRAN_AGS"
+"UNIT",""
+"TYPE","X"
+"DATA","9.9"
+
+"GROUP","DICT"
+"HEADING","DICT_GRP","DICT_HDNG"
+"UNIT","",""
+"TYPE","X","X"
+"DATA","ZZZZ","ZZZZ_ID"
