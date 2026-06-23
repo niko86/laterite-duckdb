@@ -1,4 +1,5 @@
-//! `validate_ags(path[, edition])` — opt-in AGS4 validation as a queryable table.
+//! `validate_ags(path[, dict_version][, warnings][, fyi])` — opt-in AGS4
+//! validation as a queryable table.
 //!
 //! Wraps the clean-room `laterite-ags4-validator` (`check_file`). One row per
 //! finding: `(rule, line, group, severity, desc)`. This is **never** a gate on
@@ -6,14 +7,20 @@
 //! malformation; call `validate_ags` explicitly when you want the full rule
 //! check. There is no repair surface (mutation stays in `lat-check`/the library).
 //!
-//! The edition is auto-detected from `TRAN_AGS` by default; the optional
-//! `edition` **named** parameter forces a bundled dictionary edition regardless
+//! The dictionary edition is auto-detected from `TRAN_AGS` by default; the
+//! optional `dict_version` **named** parameter forces a bundled edition regardless
 //! (e.g. to check a file's forward/backward compatibility against a specific
-//! schema):
-//!   - `validate_ags(path)`                 — auto-detect from `TRAN_AGS`.
-//!   - `validate_ags(path, edition := '4.2')` — force '4.0.3'/'4.0.4'/'4.1'/
-//!     '4.1.1'/'4.2'. (Named, not a 2nd positional, because DuckDB has no
-//!     same-name table-function overloads — see `rows::register_rows`.)
+//! schema). By default only `error`-severity findings are returned, matching the
+//! library default and `lat-check`; opt into the lower tiers with the boolean
+//! `warnings` / `fyi` knobs:
+//!   - `validate_ags(path)`                        — error-only, edition from `TRAN_AGS`.
+//!   - `validate_ags(path, dict_version := '4.2')` — force '4.0.3'/'4.0.4'/'4.1'/
+//!     '4.1.1'/'4.2'.
+//!   - `validate_ags(path, warnings := true, fyi := true)` — also include the
+//!     WARNING and FYI tiers.
+//!
+//! (Named, not extra positionals, because DuckDB has no same-name table-function
+//! overloads — see `rows::register_rows`.)
 
 use std::path::Path;
 
@@ -29,7 +36,11 @@ pub fn register(con: &Connection) -> ExtResult<()> {
         con,
         "validate_ags",
         1,
-        &[("edition", TypeId::Varchar)],
+        &[
+            ("dict_version", TypeId::Varchar),
+            ("warnings", TypeId::Boolean),
+            ("fyi", TypeId::Boolean),
+        ],
         vec![
             ("rule", TypeId::Varchar),
             ("line", TypeId::BigInt),
@@ -39,28 +50,42 @@ pub fn register(con: &Connection) -> ExtResult<()> {
         ],
         |bind| {
             let path = unsafe { bind.get_parameter_value(0) }.as_str()?;
-            // `edition` named param: absent → auto-detect from TRAN_AGS; an
+            // `dict_version` named param: absent → auto-detect from TRAN_AGS; an
             // explicit, non-blank value forces that edition. The forced string is
             // also what a cert must match to cover this request.
-            let forced = match unsafe { bind.get_named_parameter_value("edition") }.as_str() {
+            let forced = match unsafe { bind.get_named_parameter_value("dict_version") }.as_str() {
                 Ok(e) if !e.trim().is_empty() => Some(e.trim().to_string()),
                 _ => None,
             };
-            // Certificate fast-path: a fresh cert from THIS engine whose profile
-            // covers the request already proves the file clean — return clean
-            // (zero findings) without re-running the rule pass over (potentially)
-            // hundreds of MB. `validate_ags` never runs Rule 20's on-disk half, so
-            // the request's `check_files` is false.
+            // Severity knobs (default off): an error-only check unless the caller
+            // opts into the WARNING / FYI tiers — matching the library default and
+            // `lat-check`. Absent param → null → false (`as_bool_or`).
+            let want_warnings =
+                unsafe { bind.get_named_parameter_value("warnings") }.as_bool_or(false);
+            let want_fyi = unsafe { bind.get_named_parameter_value("fyi") }.as_bool_or(false);
+            // Certificate fast-path: a fresh cert from THIS engine proves the file
+            // ERROR-clean, so it covers a *default* (error-only) request — return
+            // clean (zero findings) without re-running the rule pass over
+            // (potentially) hundreds of MB. Asking for `warnings`/`fyi` is asking
+            // for more than the cert vouches for, so it always runs the engine
+            // (mirrors the library's `.validate(warnings=/fyi=)`, which never
+            // short-circuits a cert). `validate_ags` never runs Rule 20's on-disk
+            // half, so the request's `check_files` is false.
             let ctx = unsafe { bind.get_client_context() };
-            if cert::clean_verdict_certified(&ctx, &path, false, forced.as_deref()) {
+            if !want_warnings
+                && !want_fyi
+                && cert::clean_verdict_certified(&ctx, &path, false, forced.as_deref())
+            {
                 return Ok(Vec::new());
             }
-            let opts = match &forced {
-                Some(e) => CheckOptions {
-                    dict_version: Some(cert::parse_edition(e)?),
-                    ..CheckOptions::default()
+            let opts = CheckOptions {
+                dict_version: match &forced {
+                    Some(e) => Some(cert::parse_edition(e)?),
+                    None => None,
                 },
-                None => CheckOptions::default(),
+                include_warnings: want_warnings,
+                include_fyi: want_fyi,
+                ..CheckOptions::default()
             };
             run(&path, &opts)
         },

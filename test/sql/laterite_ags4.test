@@ -71,6 +71,46 @@ WHERE severity NOT IN ('error', 'warning', 'fyi');
 ----
 0
 
+# --- validate_ags severity knobs (#194) -----------------------------------
+# Error-only by default; the WARNING / FYI tiers are opt-in (matching the library
+# default + lat-check). fyi_tran.ags has an unrecognised TRAN_AGS, which the
+# validator flags as an FYI — surfaced ONLY with fyi := true.
+query I
+SELECT count(*) FROM validate_ags('test/sql/fyi_tran.ags') WHERE severity = 'fyi';
+----
+0
+
+query I
+SELECT count(*) FROM validate_ags('test/sql/fyi_tran.ags', fyi := true) WHERE severity = 'fyi';
+----
+1
+
+# The warnings knob shares the same path and is accepted; opting the tiers in never
+# drops a finding (monotonic).
+query I
+SELECT (
+  (SELECT count(*) FROM validate_ags('test/sql/fyi_tran.ags', warnings := true, fyi := true))
+  >= (SELECT count(*) FROM validate_ags('test/sql/fyi_tran.ags'))
+)::INTEGER;
+----
+1
+
+# --- dict_version := (renamed from edition :=) -----------------------------
+# Forcing a bundled edition through the renamed named param runs the check and
+# still yields only known severities.
+query I
+SELECT count(*) FROM validate_ags('test/sql/mini.ags', dict_version := '4.2')
+WHERE severity NOT IN ('error', 'warning', 'fyi');
+----
+0
+
+# certify_ags reports the resolved edition in a `dict_version` column (renamed from
+# `edition`). mini.ags has no TRAN_AGS, so it falls back to 4.1.1.
+query T
+SELECT dict_version FROM certify_ags('test/sql/mini.ags');
+----
+4.1.1
+
 # read_ags_text: parse AGS4 content passed as a VARCHAR (stable-API path, no VFS).
 # Same born-typed output as read_ags — 2 LOCA rows, LOCA_GL typed DOUBLE — but the
 # content comes in as an argument (here a literal; a bound parameter at runtime),

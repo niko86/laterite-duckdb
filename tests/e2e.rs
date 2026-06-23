@@ -160,23 +160,36 @@ fn read_ags_typed_and_keyed() {
         .unwrap();
     assert_eq!(bad_sev, 0, "severities must be error/warning/fyi");
 
-    // validate_ags(path, edition := ...): the optional named param forces a
+    // validate_ags(path, dict_version := ...): the optional named param forces a
     // bundled dictionary edition. It still yields findings with valid severities.
     let forced_findings: i64 = db
         .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}', edition := '4.2')"
+            "SELECT count(*) FROM validate_ags('{ags}', dict_version := '4.2')"
         ))
         .unwrap();
     assert!(
         forced_findings > 0,
-        "validate_ags(path, edition := '4.2') should still produce findings, got {forced_findings}"
+        "validate_ags(path, dict_version := '4.2') should still produce findings, got {forced_findings}"
     );
     let forced_bad_sev: i64 = db
         .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}', edition := '4.2') WHERE severity NOT IN ('error','warning','fyi')"
+            "SELECT count(*) FROM validate_ags('{ags}', dict_version := '4.2') WHERE severity NOT IN ('error','warning','fyi')"
         ))
         .unwrap();
     assert_eq!(forced_bad_sev, 0, "forced-edition severities must be valid");
+
+    // The severity knobs (#194): error-only by default, the FYI / WARNING tiers
+    // opt-in. mini.ags is incomplete, so it already has error findings; turning a
+    // tier on must never DROP a finding (monotonic), and severities stay valid.
+    let with_tiers: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags('{ags}', warnings := true, fyi := true)"
+        ))
+        .unwrap();
+    assert!(
+        with_tiers >= n_findings,
+        "warnings/fyi tiers must not drop findings: {with_tiers} < {n_findings}"
+    );
 
     // load_ags_script: the generated SQL materialises queryable, keyed tables.
     let script: String = db
