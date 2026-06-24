@@ -35,6 +35,52 @@ LOAD httpfs;
 SELECT loca_id FROM read_ags('s3://bucket/site.ags', 'LOCA');
 ```
 
+## Use it from your stack
+
+It loads into any DuckDB client — there's no Python/Node package to install, just DuckDB.
+
+**DuckDB CLI**
+
+```sh
+duckdb -c "INSTALL laterite_ags4 FROM community; LOAD laterite_ags4;
+           SELECT loca_id, loca_gl FROM read_ags('site.ags','LOCA');"
+```
+
+**Python** (`pip install duckdb`)
+
+```python
+import duckdb
+
+con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
+con.execute("INSTALL laterite_ags4 FROM community; LOAD laterite_ags4")
+df = con.sql("SELECT loca_id, loca_gl FROM read_ags('site.ags','LOCA')").pl()  # -> polars
+```
+
+**Node** (`npm i @duckdb/node-api`)
+
+```js
+import { DuckDBInstance } from "@duckdb/node-api";
+
+const con = await (await DuckDBInstance.create()).connect();
+await con.run("INSTALL laterite_ags4 FROM community; LOAD laterite_ags4");
+const reader = await con.runAndReadAll(
+  "SELECT loca_id, loca_gl FROM read_ags('site.ags','LOCA')",
+);
+console.table(reader.getRowObjects());
+```
+
+## Part of the laterite suite
+
+One clean-room Rust AGS4 engine, surfaced for every stack — this extension is its
+DuckDB face. The same typing, keys and validation back each surface.
+
+| Surface | Get it |
+|---|---|
+| **DuckDB** | `INSTALL laterite_ags4 FROM community` (you are here) |
+| **Python** | [`laterite`](https://pypi.org/project/laterite/) — `pip install laterite` |
+| **Node.js** | [`laterite`](https://www.npmjs.com/package/laterite) — `npm install laterite` |
+| **CLI / browser** | [`lat-check`](https://github.com/niko86/laterite) · [web validator + explorer](https://niko86.github.io/laterite/) |
+
 ## SQL surface
 
 | function | what it does |
@@ -70,6 +116,65 @@ ignored and the validating whole-file path runs, so a stale `.ags.idx` can never
 serve wrong data. The certificate is a regenerable cache: delete it freely, or
 re-run `certify_ags`. Its format and checker identity match the `laterite` Python
 wheel's `Ags4File.certify()`, so a certificate minted by either is trusted by both.
+
+## Cookbook
+
+**Explore an unfamiliar file** — what's in it, and how each group is typed:
+
+```sql
+SELECT * FROM ags_groups('site.ags');                  -- groups, row/heading counts, parent
+SELECT heading, unit, ags_type, sql_type, is_key       -- LOCA's columns and their types
+FROM ags_headings('site.ags') WHERE "group" = 'LOCA';
+```
+
+**Walk the hierarchy** — borehole → sample → lab test, joined on the content-hash keys
+(no `USING (LOCA_ID, SAMP_TOP, …)` to spell out):
+
+```sql
+SELECT l.loca_id, s.samp_top, t.llpl_ll, t.llpl_pi
+FROM read_ags('site.ags','LLPL') t
+JOIN read_ags('site.ags','SAMP') s ON t._parent_id = s._id
+JOIN read_ags('site.ags','LOCA') l ON s._parent_id = l._id;
+```
+
+**Aggregate across groups** — mean plasticity index per borehole:
+
+```sql
+SELECT l.loca_id, count(*) AS n, round(avg(t.llpl_pi), 1) AS mean_pi
+FROM read_ags('site.ags','LLPL') t
+JOIN read_ags('site.ags','SAMP') s ON t._parent_id = s._id
+JOIN read_ags('site.ags','LOCA') l ON s._parent_id = l._id
+GROUP BY l.loca_id ORDER BY mean_pi DESC;
+```
+
+**Validate, errors only** (opt into `warnings :=` / `fyi :=` for the lower tiers):
+
+```sql
+SELECT rule, "group", desc FROM validate_ags('site.ags', warnings := true)
+WHERE severity = 'error';
+```
+
+**Certify once, then read fast** — mint the `.ags.idx`; afterwards `read_ags` range-reads a
+single group and `validate_ags` returns its clean verdict without re-running the rules:
+
+```sql
+SELECT certified, errors, message FROM certify_ags('site.ags');
+```
+
+**Persist to native tables** — `load_ags_script` emits the `CREATE TABLE` DDL; run it to
+materialise an indexed, keyed copy you can query without the reader:
+
+```sql
+SELECT seq, stmt FROM load_ags_script('site.ags') ORDER BY seq;
+```
+
+**Read one group from a remote delivery** — with `httpfs` and a sibling `site.ags.idx`,
+only that group's bytes are fetched (an HTTP range request), not the whole file:
+
+```sql
+LOAD httpfs;
+SELECT * FROM read_ags('https://example.com/site.ags', 'LOCA');
+```
 
 ## In the browser (DuckDB-WASM)
 
