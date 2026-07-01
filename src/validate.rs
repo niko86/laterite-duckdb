@@ -10,14 +10,14 @@
 //! The dictionary edition is auto-detected from `TRAN_AGS` by default; the
 //! optional `dict_version` **named** parameter forces a bundled edition regardless
 //! (e.g. to check a file's forward/backward compatibility against a specific
-//! schema). By default only `error`-severity findings are returned, matching the
-//! library default and `lat-check`; opt into the lower tiers with the boolean
-//! `warnings` / `fyi` knobs:
-//!   - `validate_ags(path)`                        — error-only, edition from `TRAN_AGS`.
+//! schema). Errors **and warnings** are returned by default — matching the
+//! library's `validate()` default and `lat-check`; the FYI tier is opt-in, and
+//! warnings can be switched off, via the boolean `warnings` / `fyi` knobs:
+//!   - `validate_ags(path)`                        — errors + warnings, edition from `TRAN_AGS`.
 //!   - `validate_ags(path, dict_version := '4.2')` — force '4.0.3'/'4.0.4'/'4.1'/
 //!     '4.1.1'/'4.2'.
-//!   - `validate_ags(path, warnings := true, fyi := true)` — also include the
-//!     WARNING and FYI tiers.
+//!   - `validate_ags(path, warnings := false)`     — errors only.
+//!   - `validate_ags(path, fyi := true)`           — also include the FYI tier.
 //!
 //! (Named, not extra positionals, because DuckDB has no same-name table-function
 //! overloads — see `rows::register_rows`.)
@@ -57,20 +57,21 @@ pub fn register(con: &Connection) -> ExtResult<()> {
                 Ok(e) if !e.trim().is_empty() => Some(e.trim().to_string()),
                 _ => None,
             };
-            // Severity knobs (default off): an error-only check unless the caller
-            // opts into the WARNING / FYI tiers — matching the library default and
-            // `lat-check`. Absent param → null → false (`as_bool_or`).
+            // Severity knobs: warnings are ON by default (joining the warnings-on
+            // family — the library's `validate()` default and `lat-check`), FYI is
+            // opt-in. Absent `warnings` → null → true; pass `warnings := false` for
+            // an error-only check. Absent `fyi` → null → false (`as_bool_or`).
             let want_warnings =
-                unsafe { bind.get_named_parameter_value("warnings") }.as_bool_or(false);
+                unsafe { bind.get_named_parameter_value("warnings") }.as_bool_or(true);
             let want_fyi = unsafe { bind.get_named_parameter_value("fyi") }.as_bool_or(false);
             // Certificate fast-path: a fresh cert from THIS engine proves the file
-            // ERROR-clean, so it covers a *default* (error-only) request — return
-            // clean (zero findings) without re-running the rule pass over
-            // (potentially) hundreds of MB. Asking for `warnings`/`fyi` is asking
-            // for more than the cert vouches for, so it always runs the engine
-            // (mirrors the library's `.validate(warnings=/fyi=)`, which never
-            // short-circuits a cert). `validate_ags` never runs Rule 20's on-disk
-            // half, so the request's `check_files` is false.
+            // ERROR-clean, so it covers an *error-only* request (`warnings := false`,
+            // no `fyi`) — return clean (zero findings) without re-running the rule
+            // pass over (potentially) hundreds of MB. The default (warnings-on) and
+            // any `warnings`/`fyi` request ask for more than the cert vouches for, so
+            // they always run the engine (mirrors the library's `.validate()`, which
+            // never short-circuits a cert for the warning/FYI tiers). `validate_ags`
+            // never runs Rule 20's on-disk half, so the request's `check_files` is false.
             let ctx = unsafe { bind.get_client_context() };
             if !want_warnings
                 && !want_fyi

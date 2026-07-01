@@ -90,7 +90,7 @@ DuckDB face. The same typing, keys and validation back each surface.
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
 | `ags_dictionary()` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph |
-| `validate_ags(path[, dict_version := '4.2'][, warnings := true][, fyi := true])` | opt-in AGS4 rule check (error-only by default; opt into the WARNING / FYI tiers); never gates a read |
+| `validate_ags(path[, dict_version := '4.2'][, warnings := false][, fyi := true])` | opt-in AGS4 rule check (errors + warnings by default, matching `lat-check`; `warnings := false` for errors only, `fyi := true` adds the FYI tier); never gates a read |
 | `certify_ags(path[, dict_version := '4.2'])` | validate and, if clean, mint a `.ags.idx` **certificate** (a byte-offset index + validation provenance) beside the file; returns a one-row status (an invalid file is reported, not certified) |
 | `load_ags_script(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |
 
@@ -147,11 +147,10 @@ JOIN read_ags('site.ags','LOCA') l ON s._parent_id = l._id
 GROUP BY l.loca_id ORDER BY mean_pi DESC;
 ```
 
-**Validate, errors only** (opt into `warnings :=` / `fyi :=` for the lower tiers):
+**Validate** (errors + warnings by default; `warnings := false` for errors only, `fyi := true` adds the FYI tier):
 
 ```sql
-SELECT rule, "group", desc FROM validate_ags('site.ags', warnings := true)
-WHERE severity = 'error';
+SELECT rule, "group", severity, desc FROM validate_ags('site.ags');
 ```
 
 **Certify once, then read fast** — mint the `.ags.idx`; afterwards `read_ags` range-reads a
