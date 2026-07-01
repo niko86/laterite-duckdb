@@ -71,20 +71,28 @@ WHERE severity NOT IN ('error', 'warning', 'fyi');
 ----
 0
 
-# --- validate_ags severity knobs (#194) -----------------------------------
-# Error-only by default; the WARNING / FYI tiers are opt-in (matching the library
-# default + lat-check). tiers.ags carries a malformed DICT (a Rule 18 WARNING) and
-# an unrecognised TRAN_AGS (an FYI) on top of its errors — each surfaces ONLY when
-# its tier is switched on.
+# --- validate_ags severity knobs (#294 Batch C) ---------------------------
+# Errors + warnings by default (matching the library `validate()` default +
+# lat-check); FYI is opt-in and warnings can be switched off. tiers.ags carries a
+# malformed DICT (a Rule 18 WARNING) and an unrecognised TRAN_AGS (an FYI) on top
+# of its errors.
+# Default: the WARNING shows...
 query I
-SELECT count(*) FROM validate_ags('test/sql/tiers.ags') WHERE severity IN ('warning', 'fyi');
+SELECT count(*) FROM validate_ags('test/sql/tiers.ags') WHERE severity = 'warning';
+----
+1
+
+# ...the FYI does not.
+query I
+SELECT count(*) FROM validate_ags('test/sql/tiers.ags') WHERE severity = 'fyi';
 ----
 0
 
+# warnings := false opts back out to an error-only check.
 query I
-SELECT count(*) FROM validate_ags('test/sql/tiers.ags', warnings := true) WHERE severity = 'warning';
+SELECT count(*) FROM validate_ags('test/sql/tiers.ags', warnings := false) WHERE severity = 'warning';
 ----
-1
+0
 
 query I
 SELECT count(*) FROM validate_ags('test/sql/tiers.ags', fyi := true) WHERE severity = 'fyi';
