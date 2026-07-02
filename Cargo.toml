@@ -32,6 +32,11 @@ laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core" }
 laterite-types = { path = "laterite/rust-packages/laterite-types" }
 laterite-ags4-validator = { path = "laterite/rust-packages/laterite-ags4-validator" }
 serde_json = "1"
+# WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
+# validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
+# `read_ags` can decode non-UTF-8 bytes before the UTF-8-only core codec, and to
+# resolve a label to the `&'static Encoding` `CheckOptions.encoding` takes.
+encoding_rs = "0.8"
 # quack-rs's `duckdb-1-5` feature exposes file_system/client_context = DuckDB's
 # VFS, which the path/remote readers (read_ags, ags_groups, validate_ags, …) need.
 # It's the version-exact C API line (pinned via libduckdb-sys below), so this is a

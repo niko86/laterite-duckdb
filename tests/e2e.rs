@@ -328,6 +328,67 @@ fn cert_lifecycle() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #294 #12: the `encoding` named param on `read_ags` / `validate_ags`. A
+/// windows-1252 file (a non-UTF-8 byte in a DATA value) decodes correctly ONLY
+/// when the label is supplied. The fixture is written at runtime — a committed
+/// non-UTF-8 `.ags` would be mangled by the repo's `*.ags text=crlf` attribute.
+#[test]
+fn encoding_named_param() {
+    let Some(db) = load_extension() else {
+        eprintln!(
+            "skipping encoding E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib"
+        );
+        return;
+    };
+    let dir = std::env::temp_dir().join(format!("laterite_ags4_enc_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp enc dir");
+    let path = dir.join("cp1252.ags");
+    // PROJ_NAME = "Café", with 'é' as the single windows-1252 byte 0xE9 (which is
+    // NOT valid UTF-8), so the two decodes diverge observably.
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(
+        b"\"GROUP\",\"PROJ\"\r\n\"HEADING\",\"PROJ_ID\",\"PROJ_NAME\"\r\n\"UNIT\",\"\",\"\"\r\n\"TYPE\",\"ID\",\"X\"\r\n\"DATA\",\"P1\",\"Caf",
+    );
+    bytes.push(0xE9); // 'é' in windows-1252
+    bytes.extend_from_slice(b"\"\r\n");
+    std::fs::write(&path, &bytes).expect("write cp1252 fixture");
+    let p = path.display().to_string();
+
+    // read_ags(..., encoding := 'windows-1252') decodes 0xE9 -> 'é'.
+    let name: String = db
+        .query_one(&format!(
+            "SELECT proj_name FROM read_ags('{p}', 'PROJ', encoding := 'windows-1252')"
+        ))
+        .expect("windows-1252 read should succeed");
+    assert_eq!(name, "Café", "windows-1252 read must decode 0xE9 as é");
+
+    // The default UTF-8 read must NOT yield "Café" (0xE9 is invalid UTF-8 → a
+    // replacement char or a read error — tolerant of either).
+    let default: Result<String, _> =
+        db.query_one(&format!("SELECT proj_name FROM read_ags('{p}', 'PROJ')"));
+    assert!(
+        default.as_deref().map(|s| s != "Café").unwrap_or(true),
+        "default UTF-8 read must not decode the cp1252 byte as é (got {default:?})"
+    );
+
+    // validate_ags(..., encoding := 'windows-1252') runs under the right decode —
+    // no crash, severities stay valid.
+    let bad_sev: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags('{p}', encoding := 'windows-1252') WHERE severity NOT IN ('error','warning','fyi')"
+        ))
+        .expect("windows-1252 validate should run");
+    assert_eq!(bad_sev, 0, "encoded validate must produce valid severities");
+
+    // An unrecognised label is a clean bind error, not a panic.
+    let bad_enc: Result<i64, _> = db.query_one(&format!(
+        "SELECT count(*) FROM read_ags('{p}', 'PROJ', encoding := 'not-a-real-encoding')"
+    ));
+    assert!(bad_enc.is_err(), "an unknown encoding label must error");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A complete, valid AGS4 4.2 file (PROJ + TRAN + UNIT + TYPE) that validates
 /// with zero findings — the precondition `certify_ags` requires. CRLF as the spec
 /// mandates; mirrors the Python cert suite's fixture so both surfaces certify the

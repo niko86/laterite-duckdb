@@ -40,6 +40,7 @@ pub fn register(con: &Connection) -> ExtResult<()> {
             ("dict_version", TypeId::Varchar),
             ("warnings", TypeId::Boolean),
             ("fyi", TypeId::Boolean),
+            ("encoding", TypeId::Varchar),
         ],
         vec![
             ("rule", TypeId::Varchar),
@@ -64,6 +65,9 @@ pub fn register(con: &Connection) -> ExtResult<()> {
             let want_warnings =
                 unsafe { bind.get_named_parameter_value("warnings") }.as_bool_or(true);
             let want_fyi = unsafe { bind.get_named_parameter_value("fyi") }.as_bool_or(false);
+            // Optional `encoding` named param (#294 #12): default UTF-8; a WHATWG
+            // label decodes the source before the byte→text step of the rule check.
+            let encoding = super::source::resolve_encoding(bind)?;
             // Certificate fast-path: a fresh cert from THIS engine proves the file
             // ERROR-clean, so it covers an *error-only* request (`warnings := false`,
             // no `fyi`) — return clean (zero findings) without re-running the rule
@@ -72,9 +76,14 @@ pub fn register(con: &Connection) -> ExtResult<()> {
             // they always run the engine (mirrors the library's `.validate()`, which
             // never short-circuits a cert for the warning/FYI tiers). `validate_ags`
             // never runs Rule 20's on-disk half, so the request's `check_files` is false.
+            // The cert fast-path only serves the default UTF-8 read: a cert records
+            // its check profile but NOT the encoding it was minted under, so a
+            // non-UTF-8 request re-runs the engine rather than trust a possibly
+            // differently-decoded clean verdict.
             let ctx = unsafe { bind.get_client_context() };
             if !want_warnings
                 && !want_fyi
+                && encoding == encoding_rs::UTF_8
                 && cert::clean_verdict_certified(&ctx, &path, false, forced.as_deref())
             {
                 return Ok(Vec::new());
@@ -86,6 +95,7 @@ pub fn register(con: &Connection) -> ExtResult<()> {
                 },
                 include_warnings: want_warnings,
                 include_fyi: want_fyi,
+                encoding,
                 ..CheckOptions::default()
             };
             run(&path, &opts)

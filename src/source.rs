@@ -21,7 +21,7 @@ use std::sync::Arc;
 use laterite_ags4_core::ags4_codec::{ParsedAgs4, read_ags4_bytes};
 use quack_rs::client_context::ClientContext;
 use quack_rs::file_system::{FileHandle, FileOpenOptions, FileSystem};
-use quack_rs::prelude::ExtensionError;
+use quack_rs::prelude::{BindInfo, ExtensionError};
 
 /// Default ceiling on one file's reported/read size — generous for any real AGS
 /// delivery (these run MB to low-GB), low enough to bound a hostile remote
@@ -48,17 +48,55 @@ fn max_file_bytes() -> u64 {
 /// must structurally parse to produce rows at all) with a message pointing at
 /// validation/repair — the "assume valid, else say so" contract.
 pub fn read_parsed(ctx: &ClientContext, path: &str) -> Result<Arc<ParsedAgs4>, ExtensionError> {
-    // Cheap open + size first: the size is the cache key, so a hit skips the
-    // slurp + parse in the closure below entirely.
+    read_parsed_with_encoding(ctx, path, encoding_rs::UTF_8)
+}
+
+/// As [`read_parsed`], but decoding the source bytes with `encoding` (the
+/// `read_ags(..., encoding := 'windows-1252')` path, #294 #12). The core codec is
+/// UTF-8-only, so a non-UTF-8 file is decoded to UTF-8 first (`encoding_rs` lossy —
+/// undefined bytes → U+FFFD); UTF-8 keeps the exact original bytes (byte-identical
+/// to the pre-#12 path). `encoding.name()` joins the cache key so a UTF-8 read and
+/// a windows-1252 read of the same file memoise separately.
+pub fn read_parsed_with_encoding(
+    ctx: &ClientContext,
+    path: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> Result<Arc<ParsedAgs4>, ExtensionError> {
+    // Cheap open + size first: the size is part of the cache key, so a hit skips
+    // the slurp + parse in the closure below entirely.
     let (handle, size) = open_for_read(ctx, path)?;
-    super::cache::get_or_try_insert(path, size, || {
+    super::cache::get_or_try_insert(path, size, encoding.name(), || {
         let buf = slurp(&handle, path, size)?;
-        read_ags4_bytes(&buf).map_err(|e| {
+        let parsed = if encoding == encoding_rs::UTF_8 {
+            read_ags4_bytes(&buf)
+        } else {
+            let (text, _, _) = encoding.decode(&buf);
+            read_ags4_bytes(text.as_bytes())
+        };
+        parsed.map_err(|e| {
             ExtensionError::new(format!(
                 "read_ags: '{path}' did not parse as AGS4 ({e}); the file may be invalid — validate/repair it first"
             ))
         })
     })
+}
+
+/// Resolve the optional `encoding` named param — a WHATWG label like `'utf-8'` /
+/// `'windows-1252'` — to its `&'static Encoding`; absent or blank → UTF-8, an
+/// unrecognised label is a clear bind error. Shared by `read_ags` and
+/// `validate_ags` (#294 #12).
+pub fn resolve_encoding(info: &BindInfo) -> Result<&'static encoding_rs::Encoding, ExtensionError> {
+    match unsafe { info.get_named_parameter_value("encoding") }.as_str() {
+        Ok(label) if !label.trim().is_empty() => {
+            let label = label.trim();
+            encoding_rs::Encoding::for_label(label.as_bytes()).ok_or_else(|| {
+                ExtensionError::new(format!(
+                    "unknown encoding '{label}'; expected a WHATWG label like 'utf-8' or 'windows-1252'"
+                ))
+            })
+        }
+        _ => Ok(encoding_rs::UTF_8),
+    }
 }
 
 /// Read the *raw bytes* of `path` through the VFS — the unparsed, **uncached**

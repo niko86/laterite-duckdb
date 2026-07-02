@@ -55,6 +55,7 @@ pub fn register(con: &Connection) -> ExtResult<()> {
     let builder = TableFunctionBuilder::new("read_ags")
         .param(TypeId::Varchar) // path
         .param(TypeId::Varchar) // group
+        .named_param("encoding", TypeId::Varchar) // WHATWG label; default UTF-8 (#294 #12)
         .with_state::<ReadAgsState, _>(bind)
         .scan(scan)
         .build()?;
@@ -63,7 +64,11 @@ pub fn register(con: &Connection) -> ExtResult<()> {
     unsafe { con.register_table(builder) }
 }
 
-/// Build `read_ags_text(content, group)` — STABLE-only variant (no VFS).
+/// Build `read_ags_text(content, group)` — STABLE-only variant (no VFS). No
+/// `encoding` param: `content` is a DuckDB VARCHAR, i.e. already-decoded UTF-8
+/// text, so there are no source bytes left to re-decode (unlike the `read_ags`
+/// path reader; #294 #12). A non-UTF-8 file is handled by `read_ags(path,
+/// encoding := …)`.
 pub fn register_text(con: &Connection) -> ExtResult<()> {
     let builder = TableFunctionBuilder::new("read_ags_text")
         .param(TypeId::Varchar) // AGS4 file content
@@ -89,13 +94,23 @@ fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
         .trim()
         .to_uppercase();
 
+    // Optional `encoding` named param (#294 #12): default UTF-8; a WHATWG label
+    // decodes non-UTF-8 source bytes before the UTF-8-only core codec.
+    let encoding = super::source::resolve_encoding(info)?;
+
     // SAFETY: `info` is a live bind-info; `get_client_context` yields the
     // query's client context, from which `source`/`cert` obtain the VFS.
     let ctx = unsafe { info.get_client_context() };
-    if let Some(ags) = super::cert::sliced_group(&ctx, &path, &group) {
-        return plan_from_ags(info, &ags, &group);
+    // The certificate slice fast-path range-reads + parses one group's bytes as
+    // UTF-8, so it only serves the default encoding; a non-UTF-8 read takes the
+    // whole-file decode path (the cert index is a same-file optimisation, not a
+    // correctness requirement).
+    if encoding == encoding_rs::UTF_8 {
+        if let Some(ags) = super::cert::sliced_group(&ctx, &path, &group) {
+            return plan_from_ags(info, &ags, &group);
+        }
     }
-    let parsed = super::source::read_parsed(&ctx, &path)?;
+    let parsed = super::source::read_parsed_with_encoding(&ctx, &path, encoding)?;
     plan(info, &parsed, &group)
 }
 

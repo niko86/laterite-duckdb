@@ -43,8 +43,10 @@ const DEFAULT_CAP_BYTES: usize = 256 * 1024 * 1024;
 /// structural overhead (key string + map slot + the empty parsed struct).
 const MIN_ENTRY_COST: usize = 4 * 1024;
 
-/// Cache key: the file path plus its byte size (the change detector).
-type Key = (String, u64);
+/// Cache key: the file path, its byte size (the change detector), and the
+/// encoding it was decoded with (`encoding.name()`) — so the same file read as
+/// UTF-8 and as windows-1252 memoise to distinct parses (#294 #12).
+type Key = (String, u64, &'static str);
 
 struct Entry {
     parsed: Arc<ParsedAgs4>,
@@ -116,18 +118,19 @@ fn cap_from_env() -> usize {
     }
 }
 
-/// Return the parsed file for `(path, size)`, building it via `build` only on a
-/// miss. `build` (the slurp + parse) is never called on a hit and always runs
-/// outside the lock.
+/// Return the parsed file for `(path, size, encoding)`, building it via `build`
+/// only on a miss. `build` (the slurp + parse) is never called on a hit and
+/// always runs outside the lock.
 pub fn get_or_try_insert<F>(
     path: &str,
     size: u64,
+    encoding: &'static str,
     build: F,
 ) -> Result<Arc<ParsedAgs4>, ExtensionError>
 where
     F: FnOnce() -> Result<ParsedAgs4, ExtensionError>,
 {
-    let key = (path.to_string(), size);
+    let key = (path.to_string(), size, encoding);
 
     // Fast path: a hit returns an Arc clone, bumping recency.
     {
@@ -186,12 +189,12 @@ mod tests {
     #[test]
     fn second_call_is_a_hit() {
         let mut built = 0;
-        let a = get_or_try_insert("/x/hit.ags", 10, || {
+        let a = get_or_try_insert("/x/hit.ags", 10, "UTF-8", || {
             built += 1;
             Ok(parsed_stub())
         })
         .unwrap();
-        let b = get_or_try_insert("/x/hit.ags", 10, || {
+        let b = get_or_try_insert("/x/hit.ags", 10, "UTF-8", || {
             built += 1;
             Ok(parsed_stub())
         })
@@ -205,27 +208,43 @@ mod tests {
     #[test]
     fn size_change_busts() {
         let mut built = 0;
-        let _ = get_or_try_insert("/x/grow.ags", 10, || {
+        let _ = get_or_try_insert("/x/grow.ags", 10, "UTF-8", || {
             built += 1;
             Ok(parsed_stub())
         });
-        let _ = get_or_try_insert("/x/grow.ags", 20, || {
+        let _ = get_or_try_insert("/x/grow.ags", 20, "UTF-8", || {
             built += 1;
             Ok(parsed_stub())
         });
         assert_eq!(built, 2, "a size change must re-build");
     }
 
+    /// The SAME (path, size) read with a DIFFERENT encoding is a distinct key —
+    /// so a UTF-8 read and a windows-1252 read of one file don't collide (#294 #12).
+    #[test]
+    fn encoding_change_busts() {
+        let mut built = 0;
+        let _ = get_or_try_insert("/x/enc.ags", 10, "UTF-8", || {
+            built += 1;
+            Ok(parsed_stub())
+        });
+        let _ = get_or_try_insert("/x/enc.ags", 10, "windows-1252", || {
+            built += 1;
+            Ok(parsed_stub())
+        });
+        assert_eq!(built, 2, "a different encoding must re-build");
+    }
+
     /// A build error propagates and caches nothing (the next call retries).
     #[test]
     fn error_is_not_cached() {
         let mut built = 0;
-        let first = get_or_try_insert("/x/bad.ags", 7, || {
+        let first = get_or_try_insert("/x/bad.ags", 7, "UTF-8", || {
             built += 1;
             Err(ExtensionError::new("boom"))
         });
         assert!(first.is_err());
-        let _ = get_or_try_insert("/x/bad.ags", 7, || {
+        let _ = get_or_try_insert("/x/bad.ags", 7, "UTF-8", || {
             built += 1;
             Ok(parsed_stub())
         });
