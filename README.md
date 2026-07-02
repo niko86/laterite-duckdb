@@ -89,7 +89,8 @@ DuckDB face. The same typing, keys and validation back each surface.
 | `read_ags_text(content, group)` | same typed output, but the AGS4 text is passed as a VARCHAR argument (literal or bound parameter) instead of a path — no filesystem, so it's the reader available in the **WASM** build |
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
-| `ags_dictionary()` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph |
+| `ags_dictionary([edition := '4.2'])` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph; no arg = the union registry, `edition :=` = that edition's bundled standard dictionary |
+| `ags_rules()` | the numbered AGS4 rule catalogue — `(rule, title, checks, severity, fixable, observations)` — the same rules `validate_ags` enforces |
 | `validate_ags(path[, dict_version := '4.2'][, warnings := false][, fyi := true])` | opt-in AGS4 rule check (errors + warnings by default, matching `lat-check`; `warnings := false` for errors only, `fyi := true` adds the FYI tier); never gates a read |
 | `certify_ags(path[, dict_version := '4.2'])` | validate and, if clean, mint a `.ags.idx` **certificate** (a byte-offset index + validation provenance) beside the file; returns a one-row status (an invalid file is reported, not certified) |
 | `load_ags_script(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |

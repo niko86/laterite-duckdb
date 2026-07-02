@@ -64,6 +64,55 @@ SELECT parent FROM ags_relationships() WHERE child = 'SAMP';
 ----
 LOCA
 
+# --- ags_rules() — the numbered rule catalogue as rows (#294 F#11) ---------
+query I
+SELECT count(*) FROM ags_rules();
+----
+27
+
+# Rule 8 (numeric reformat) is an error-severity, fixable rule.
+query I
+SELECT count(*) FROM ags_rules() WHERE rule = '8' AND severity = 'error' AND fixable;
+----
+1
+
+# Every rule has a title; severities are from the known set.
+query I
+SELECT count(*) FROM ags_rules() WHERE title IS NULL OR severity NOT IN ('error', 'warning', 'fyi', 'mixed');
+----
+0
+
+# --- ags_dictionary(edition) — one edition's STANDARD dictionary (#294 F#6) -
+# The schema grew across editions: 4.0.3 has fewer groups than 4.2.
+query I
+SELECT count(DISTINCT "group") FROM ags_dictionary(edition := '4.0.3');
+----
+124
+
+query I
+SELECT count(DISTINCT "group") FROM ags_dictionary(edition := '4.2');
+----
+171
+
+# PROJ_ID is the KEY of PROJ in that edition (same 9-column shape as the union).
+query I
+SELECT count(*) FROM ags_dictionary(edition := '4.2')
+WHERE "group" = 'PROJ' AND heading = 'PROJ_ID' AND status = 'KEY+REQUIRED' AND sql_type = 'VARCHAR';
+----
+1
+
+# No argument = the union registry (default) — spans all editions, so ≥ any one.
+query I
+SELECT count(DISTINCT "group") FROM ags_dictionary();
+----
+174
+
+# An unknown edition is a bind-time error.
+statement error
+SELECT * FROM ags_dictionary(edition := '9.9');
+----
+unknown edition
+
 # validate_ags runs and every severity is from the known set (no bad severities).
 query I
 SELECT count(*) FROM validate_ags('test/sql/mini.ags')
