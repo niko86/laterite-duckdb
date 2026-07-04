@@ -21,13 +21,14 @@
 #
 # ── HOW TO REUSE FOR A FUTURE RELEASE ───────────────────────────────────────
 #   1. Make your source changes.
-#   2. Bump `VERSION` below.
-#   3. Replace `COMMIT_MSG` with this release's changelog.
-#   4. If it's a brand-new community PR (not #2079), update PR_NUMBER / PR_FORK /
+#   2. Run it with the version as a REQUIRED arg — the extension tracks the
+#      laterite release version (#372), so pass laterite's number:
+#        bash scripts/release.sh 0.6.0
+#      (override the commit message with COMMIT_MSG=... in the env if needed.)
+#   3. If it's a brand-new community PR (not #2079), update PR_NUMBER / PR_FORK /
 #      PR_BRANCH to the new one.
-#   5. Run it: `bash scripts/release.sh` — answer the y/N prompts.
-#   Nothing else is release-specific; everything below the CONFIG block is generic
-#   and resolves paths from the script's own location, so it runs from anywhere.
+#   Answer the y/N prompts. Everything below the CONFIG block is generic and
+#   resolves paths from the script's own location, so it runs from anywhere.
 #
 # REQUIRES
 #   cargo · git · gh (authed for niko86/laterite-duckdb + the community-extensions fork)
@@ -39,20 +40,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ============================ CONFIG ========================================
-# --- per-release: edit these two each time ---
-VERSION="0.5.0"                          # NEW version. v0.4.1 is the live community
-                                         #   release; the edition->dict_version break
-                                         #   warrants a minor bump (0.x semver).
-COMMIT_MSG="feat: validate_ags severity knobs + dict_version rename (v${VERSION})
-
-- validate_ags gains boolean named params warnings:=true / fyi:=true (error-only by
-  default, matching the library + lat-check); either tier bypasses the cert fast-path
-  (a cert only vouches error-clean).
-- Rename the edition named param to dict_version on validate_ags + certify_ags (and
-  certify_ags's resolved-edition output column edition -> dict_version), aligning the
-  SQL surface with the rest of the suite. Clean rename, no alias.
-- Bump the bundled validator submodule so the WARNING-tier rules (Rule 18 DICT) are
-  present, so warnings:=true surfaces real findings."
+# VERSION is a REQUIRED arg, not a hard-coded default: a buried wrong version is
+# the kind of silent release footgun that ships the wrong number. The extension
+# tracks the laterite release version (#372) — pass laterite's number.
+VERSION="${1:?usage: bash scripts/release.sh <version>   e.g. bash scripts/release.sh 0.6.0 (pass the laterite release version — the extension tracks it, #372)}"
+# The commit subject defaults to a generic release line; override with the env
+# var COMMIT_MSG=... for a fuller changelog when a release warrants one.
+COMMIT_MSG="${COMMIT_MSG:-release: v${VERSION}}"
 
 # --- stable settings (rarely change) ---
 EXT_DIR="$REPO_ROOT"                                  # this repo (derived)

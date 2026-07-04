@@ -47,6 +47,19 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
+      # The manifest version and the community descriptor version must agree — a
+      # drift ships a mislabelled extension. (The number itself tracks the
+      # laterite release; scripts/release.sh <version> stamps both.)
+      - name: version consistency (Cargo.toml == description.yml)
+        run: |
+          cargo_v=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"/\1/')
+          desc_v=$(grep -m1 '^  version:' description.yml | sed -E 's/^  version: *(.*)/\1/')
+          echo "Cargo.toml=$cargo_v  description.yml=$desc_v"
+          [ "$cargo_v" = "$desc_v" ] || {
+            echo "::error::version drift: Cargo.toml=$cargo_v != description.yml=$desc_v"
+            exit 1
+          }
+
       # --- loadable build FIRST, then freeze ---
       # The extension is built two ways here that CAN'T share a target/: the
       # *loadable-extension* libduckdb-sys (the real artifact) and the *bundled-test*
