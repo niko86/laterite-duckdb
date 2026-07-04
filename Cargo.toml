@@ -11,7 +11,7 @@
 # repo points them at the mirror submodule, as below.
 [package]
 name = "laterite-duckdb"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.87"      # quack-rs MSRV
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
