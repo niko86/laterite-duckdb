@@ -1,0 +1,111 @@
+# Release CI for the `laterite_ags4` DuckDB community extension (#372).
+#
+# On a `v*` tag this makes cutting a release push-button:
+#   1. build + test the RELEASE extension — a tag that doesn't build is caught
+#      here, not by the community-extensions maintainers days later;
+#   2. pin the community descriptor to THIS tag's commit (authoritative — it
+#      resolves the old tag-vs-HEAD ambiguity) and upload it as an artifact,
+#      ready to submit;
+#   3. IF the owner has added a `COMMUNITY_EXTENSIONS_TOKEN` secret, push that
+#      descriptor to the community PR fork so the PR updates itself. Without the
+#      secret the push self-skips — the maintainer runs `scripts/release.sh` (or
+#      submits the artifact) with their own `gh` auth. The external PR to
+#      duckdb/community-extensions is never touched by CI; only the owner's fork.
+#
+# The version tracks the laterite release (#372): `scripts/release.sh <version>`
+# stamps Cargo.toml + description.yml (and CI asserts they agree) before you tag.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Least privilege: the build needs nothing beyond read. The optional community
+# push authenticates with its own cross-repo PAT, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      # The tag must match the manifest — you can't tag v0.6.0 against a 0.5.0
+      # source. (ci.yml already asserts Cargo.toml == description.yml.)
+      - name: tag matches the manifest version
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          desc_v=$(grep -m1 '^  version:' description.yml | sed -E 's/^  version: *(.*)/\1/')
+          echo "tag=${GITHUB_REF_NAME} (=> $ver)  description.yml=$desc_v"
+          [ "$ver" = "$desc_v" ] || {
+            echo "::error::tag ${GITHUB_REF_NAME} does not match description.yml version $desc_v"
+            exit 1
+          }
+
+      # Build + test the loadable RELEASE artifact — the proof the tagged commit ships.
+      - name: make configure
+        run: make configure
+      - name: make release (loadable cdylib + metadata)
+        run: make release
+      - name: make test_release (sqllogictest against the release build)
+        run: make test_release
+
+      # Pin the descriptor to this tag's commit and hand it over as an artifact.
+      - name: build the community-extensions descriptor
+        id: descriptor
+        run: |
+          set -euo pipefail
+          sed "s|REPLACE_WITH_RELEASE_COMMIT_SHA|${GITHUB_SHA}|" description.yml > description.release.yml
+          echo "  pinned ref: ${GITHUB_SHA}"
+          echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: upload the descriptor artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: community-descriptor
+          path: description.release.yml
+
+      # Optional: auto-update the community PR fork — only when the owner has
+      # wired a cross-repo token (their credential, their choice). The step
+      # always runs but self-skips with a notice if the secret is empty.
+      - name: update the community-extensions PR (if a token is configured)
+        env:
+          GH_TOKEN: ${{ secrets.COMMUNITY_EXTENSIONS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "No COMMUNITY_EXTENSIONS_TOKEN configured — skipping the auto-update."
+            echo "Submit the uploaded descriptor, or run scripts/release.sh, to update the PR."
+            exit 0
+          fi
+          fork=niko86/community-extensions
+          branch=add-laterite_ags4
+          desc=extensions/laterite_ags4/description.yml
+          git clone --depth 1 --branch "$branch" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${fork}.git" fork
+          cp description.release.yml "fork/${desc}"
+          cd fork
+          git config user.name "laterite-release[bot]"
+          git config user.email "laterite-release@users.noreply.github.com"
+          if git diff --quiet -- "$desc"; then
+            echo "descriptor already current — nothing to push."
+          else
+            git commit -am "laterite_ags4: pin ${GITHUB_REF_NAME} (${{ steps.descriptor.outputs.sha }})"
+            git push origin "$branch"
+            echo "pushed the descriptor to ${fork}@${branch} — the community PR is updated."
+          fi
