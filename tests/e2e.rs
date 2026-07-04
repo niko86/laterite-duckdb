@@ -405,8 +405,17 @@ fn load_extension() -> Option<InMemoryDb> {
     ext.extend_from_slice(&metadata_footer());
     // DuckDB derives the init symbol from the file's basename, so the file MUST
     // be named exactly `laterite_ags4.duckdb_extension` (→ `laterite_ags4_init_c_api`).
-    // A per-process subdir keeps that fixed name collision-free.
-    let dir = std::env::temp_dir().join(format!("laterite_ags4_e2e_{}", std::process::id()));
+    // `cargo test` runs these e2e tests as parallel THREADS in one process, so a
+    // process-id subdir is NOT unique per test — they'd race writing + loading the
+    // same fixed-name file (an intermittent "<512 bytes / not a DuckDB extension"
+    // LOAD as one thread reads mid-write from another). A per-CALL counter isolates
+    // each test's extension file while preserving the required basename.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "laterite_ags4_e2e_{}_{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+    ));
     std::fs::create_dir_all(&dir).expect("create temp ext dir");
     let out = dir.join("laterite_ags4.duckdb_extension");
     std::fs::write(&out, &ext).expect("write .duckdb_extension");
