@@ -129,21 +129,24 @@ SHA="$(git -C "$EXT_DIR" rev-parse HEAD)"
 say "Release commit SHA: $SHA"
 
 # --- 7. push the descriptor to a FRESH per-version community PR branch -------
-# A NEW branch off the fork's main = a clean, one-file PR diff, and never a stale
-# hard-coded branch. (If the fork's main has drifted, "Sync fork" it on GitHub
-# first — we base off origin/main here.)
+# A NEW branch off UPSTREAM main = a clean, one-file PR diff. Base off upstream
+# (duckdb/community-extensions), NOT the fork's own main — a fork's main goes
+# stale (it can predate the extension being added, so it lacks the
+# extensions/laterite_ags4/ dir entirely, which broke the CI path once).
 say "Community-extensions descriptor → $PR_FORK @ $PR_BRANCH (pin $SHA)"
 if [[ ! -d "$FORK_DIR/.git" ]]; then
   gh repo clone "$PR_FORK" "$FORK_DIR"
 fi
-git -C "$FORK_DIR" fetch origin
-git -C "$FORK_DIR" checkout -B "$PR_BRANCH" origin/main
+git -C "$FORK_DIR" remote get-url upstream >/dev/null 2>&1 \
+  || git -C "$FORK_DIR" remote add upstream https://github.com/duckdb/community-extensions.git
+git -C "$FORK_DIR" fetch upstream main
+git -C "$FORK_DIR" checkout -B "$PR_BRANCH" upstream/main
 # This repo's description.yml is the canonical descriptor; copy it over + fill the
 # placeholder ref with the real release SHA.
 cp "$EXT_DIR/description.yml" "$FORK_DIR/$DESC_PATH"
 sed -i '' "s|REPLACE_WITH_RELEASE_COMMIT_SHA|$SHA|" "$FORK_DIR/$DESC_PATH"
 say "Descriptor for the PR:"
-git -C "$FORK_DIR" --no-pager diff --stat origin/main -- "$DESC_PATH" || true
+git -C "$FORK_DIR" --no-pager diff --stat upstream/main -- "$DESC_PATH" || true
 if confirm "Commit + push '$PR_BRANCH' to $PR_FORK?"; then
   git -C "$FORK_DIR" add "$DESC_PATH"
   git -C "$FORK_DIR" commit -m "laterite_ags4: bump to $VERSION"
