@@ -233,3 +233,26 @@ query I
 SELECT (errors > 0)::INTEGER FROM certify_ags('test/sql/mini.ags');
 ----
 1
+
+# --- validate_ags_text / certify_ags_text (#392): the content (VARCHAR) twins of
+# the path verbs, for AGS4 that isn't a file you can hand the VFS. The
+# clean/certified path + the cert JSON shape live in the temp-isolated Rust e2e
+# (tests/e2e.rs::text_verbs); here we assert they register + behave via SQL.
+
+# validate_ags_text runs the rules over content; every severity is from the known set.
+query I
+SELECT count(*) FROM validate_ags_text(
+'"GROUP","PROJ"' || chr(10) || '"HEADING","PROJ_ID"' || chr(10) ||
+'"UNIT",""' || chr(10) || '"TYPE","ID"' || chr(10) || '"DATA","P1"')
+WHERE severity NOT IN ('error', 'warning', 'fyi');
+----
+0
+
+# certify_ags_text: the cert column is populated exactly when the file certifies
+# (cert non-null IFF certified) — the invariant, whatever the content's verdict.
+query I
+SELECT (certified = (cert IS NOT NULL))::INTEGER FROM certify_ags_text(
+'"GROUP","PROJ"' || chr(10) || '"HEADING","PROJ_ID"' || chr(10) ||
+'"UNIT",""' || chr(10) || '"TYPE","ID"' || chr(10) || '"DATA","P1"');
+----
+1

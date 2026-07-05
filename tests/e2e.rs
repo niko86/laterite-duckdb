@@ -380,6 +380,17 @@ fn encoding_named_param() {
         .expect("windows-1252 validate should run");
     assert_eq!(bad_sev, 0, "encoded validate must produce valid severities");
 
+    // certify_ags(..., encoding := 'windows-1252') accepts the same knob and runs
+    // under the decode (this single-group fixture has findings so it won't certify,
+    // but the call must succeed — parity with read_ags/validate_ags).
+    let enc_certify: Result<bool, _> = db.query_one(&format!(
+        "SELECT certified FROM certify_ags('{p}', encoding := 'windows-1252')"
+    ));
+    assert!(
+        matches!(enc_certify, Ok(false)),
+        "certify_ags must accept `encoding` and run (findings → not certified): {enc_certify:?}"
+    );
+
     // An unrecognised label is a clean bind error, not a panic.
     let bad_enc: Result<i64, _> = db.query_one(&format!(
         "SELECT count(*) FROM read_ags('{p}', 'PROJ', encoding := 'not-a-real-encoding')"
@@ -387,6 +398,109 @@ fn encoding_named_param() {
     assert!(bad_enc.is_err(), "an unknown encoding label must error");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The content variants: `validate_ags_text` / `certify_ags_text` take the AGS4
+/// as a VARCHAR (no path), the twins of `read_ags_text`. Same verdicts as the
+/// path verbs; `certify_ags_text` returns the cert JSON in a column instead of
+/// writing an `.ags.idx`.
+#[test]
+fn text_verbs() {
+    let Some(db) = load_extension() else {
+        eprintln!(
+            "skipping text-verbs E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib"
+        );
+        return;
+    };
+    let clean = std::fs::read_to_string(clean_fixture()).expect("read clean.ags");
+    let mini = std::fs::read_to_string(fixture()).expect("read mini.ags");
+
+    // --- validate_ags_text: same verdict as validate_ags, from content ---
+    let clean_findings: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags_text({})",
+            sql_str(&clean)
+        ))
+        .expect("validate_ags_text on clean content");
+    assert_eq!(clean_findings, 0, "clean content validates clean");
+    let clean_path_findings: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags('{}')",
+            clean_fixture().display()
+        ))
+        .unwrap();
+    assert_eq!(
+        clean_findings, clean_path_findings,
+        "text and path validate agree on the clean file"
+    );
+    let mini_errors: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags_text({}) WHERE severity = 'error'",
+            sql_str(&mini)
+        ))
+        .expect("validate_ags_text on invalid content");
+    assert!(mini_errors > 0, "invalid content surfaces errors");
+    // the warnings knob still applies (errors-only drops the warning tier)
+    let errors_only: i64 = db
+        .query_one(&format!(
+            "SELECT count(*) FROM validate_ags_text({}, warnings := false) WHERE severity = 'warning'",
+            sql_str(&mini)
+        ))
+        .unwrap();
+    assert_eq!(errors_only, 0, "warnings := false drops the warning tier");
+
+    // --- certify_ags_text: clean content → certified, cert JSON in a column ---
+    let certified: bool = db
+        .query_one(&format!(
+            "SELECT certified FROM certify_ags_text({})",
+            sql_str(&clean)
+        ))
+        .expect("certify_ags_text on clean content");
+    assert!(certified, "clean content certifies");
+    let cert_json: String = db
+        .query_one(&format!(
+            "SELECT cert FROM certify_ags_text({})",
+            sql_str(&clean)
+        ))
+        .expect("certify_ags_text returns the cert JSON");
+    // the SAME cross-surface `.ags.idx` shape the path verb / the Python wheel write
+    assert!(
+        cert_json.contains("\"version\": 1"),
+        "cert json: {cert_json}"
+    );
+    assert!(
+        cert_json.contains("\"validator\": \"laterite_ags4\""),
+        "cert carries the engine identity: {cert_json}"
+    );
+    let groups: i64 = db
+        .query_one(&format!(
+            "SELECT groups FROM certify_ags_text({})",
+            sql_str(&clean)
+        ))
+        .unwrap();
+    assert_eq!(groups, 4, "PROJ + TRAN + UNIT + TYPE");
+
+    // --- refuse: invalid content is not certified and its cert column is NULL ---
+    let mini_certified: bool = db
+        .query_one(&format!(
+            "SELECT certified FROM certify_ags_text({})",
+            sql_str(&mini)
+        ))
+        .unwrap();
+    assert!(!mini_certified, "invalid content must not certify");
+    let cert_is_null: bool = db
+        .query_one(&format!(
+            "SELECT cert IS NULL FROM certify_ags_text({})",
+            sql_str(&mini)
+        ))
+        .unwrap();
+    assert!(cert_is_null, "an uncertified file has a NULL cert column");
+}
+
+/// A DuckDB single-quoted string literal (doubling any interior quote). AGS4 uses
+/// double-quotes, so this is just the wrapper in practice — but escape anyway.
+fn sql_str(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
 }
 
 /// A complete, valid AGS4 4.2 file (PROJ + TRAN + UNIT + TYPE) that validates

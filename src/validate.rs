@@ -21,11 +21,23 @@
 //!
 //! (Named, not extra positionals, because DuckDB has no same-name table-function
 //! overloads — see `rows::register_rows`.)
+//!
+//! `validate_ags_text(content[, dict_version][, warnings][, fyi])` is the content
+//! variant — it validates AGS4 passed as a VARCHAR (AGS already in a column, or
+//! from `read_text`) instead of a path, the twin of `read_ags_text`. Like
+//! `read_ags_text` it has **no `encoding`** param (the content is already-decoded
+//! UTF-8) and **no certificate fast-path** (a cert is a `<path>.idx` beside a
+//! file; text has no path). It parses + runs the rules in memory, so it does
+//! **not** apply the path verbs' 4.0.3→4.0.4 auto-upgrade (that lives behind
+//! `check_file`'s private guard); force `dict_version := '4.0.4'` for a 4.0.3
+//! file that uses 4.0.4-only vocabulary.
 
 use std::path::Path;
 
 use laterite_ags4_validator::findings::Severity;
-use laterite_ags4_validator::{CheckOptions, check_file};
+use laterite_ags4_validator::{
+    CheckOptions, Dictionary, Findings, check_file, parse, resolve_dict_version, rules, tran_ags_of,
+};
 use quack_rs::prelude::*;
 
 use super::cert;
@@ -103,13 +115,81 @@ pub fn register(con: &Connection) -> ExtResult<()> {
     )
 }
 
-/// Run the validator and flatten its findings into output rows.
+/// Build `validate_ags_text(content, …)` — the content variant (no VFS, no
+/// `encoding`, no cert fast-path; the twin of `read_ags_text`). Same knobs as
+/// `validate_ags` bar the source door.
+pub fn register_text(con: &Connection) -> ExtResult<()> {
+    register_rows(
+        con,
+        "validate_ags_text",
+        1,
+        &[
+            ("dict_version", TypeId::Varchar),
+            ("warnings", TypeId::Boolean),
+            ("fyi", TypeId::Boolean),
+        ],
+        vec![
+            ("rule", TypeId::Varchar),
+            ("line", TypeId::BigInt),
+            ("group", TypeId::Varchar),
+            ("severity", TypeId::Varchar),
+            ("desc", TypeId::Varchar),
+        ],
+        |bind| {
+            let content = unsafe { bind.get_parameter_value(0) }.as_str()?;
+            let forced = match unsafe { bind.get_named_parameter_value("dict_version") }.as_str() {
+                Ok(e) if !e.trim().is_empty() => Some(e.trim().to_string()),
+                _ => None,
+            };
+            let want_warnings =
+                unsafe { bind.get_named_parameter_value("warnings") }.as_bool_or(true);
+            let want_fyi = unsafe { bind.get_named_parameter_value("fyi") }.as_bool_or(false);
+            let opts = CheckOptions {
+                dict_version: match &forced {
+                    Some(e) => Some(cert::parse_edition(e)?),
+                    None => None,
+                },
+                include_warnings: want_warnings,
+                include_fyi: want_fyi,
+                ..CheckOptions::default()
+            };
+            run_text(&content, &opts)
+        },
+    )
+}
+
+/// Run the validator over a local `path` and flatten its findings into rows.
 fn run(path: &str, opts: &CheckOptions) -> Result<Vec<Vec<Cell>>, ExtensionError> {
     let findings = check_file(Path::new(path), opts)
         .map_err(|e| ExtensionError::new(format!("validate_ags: '{path}': {e}")))?;
+    Ok(findings_to_rows(&findings))
+}
+
+/// Run the validator over in-memory `content` (already-decoded UTF-8) and flatten
+/// its findings into rows. Mirrors `check_file`'s pipeline — parse → resolve the
+/// dictionary edition (auto from `TRAN_AGS`, or the forced one) → run every rule
+/// — minus the file read and the private 4.0.3→4.0.4 guard (see the module docs).
+fn run_text(content: &str, opts: &CheckOptions) -> Result<Vec<Vec<Cell>>, ExtensionError> {
+    let parsed = parse::parse_str(content).map_err(|e| {
+        ExtensionError::new(format!(
+            "validate_ags_text: input did not parse as AGS4 ({e})"
+        ))
+    })?;
+    let (dv, _res) = resolve_dict_version(opts.dict_version, tran_ags_of(&parsed).as_deref())
+        .map_err(|e| ExtensionError::new(format!("validate_ags_text: {e}")))?;
+    let dict = Dictionary::bundled(dv);
+    let mut found = Findings::new();
+    // `None` path → Rule 20's opt-in on-disk half is skipped (there is no file to
+    // locate a sibling FILE/ tree beside).
+    rules::run_all(&parsed, &dict, opts, None, &mut found);
+    Ok(findings_to_rows(&found))
+}
+
+/// Flatten a `Findings` map into one output row per finding, in the map's
+/// deterministic `(rule → Vec<Finding>)` order.
+fn findings_to_rows(findings: &Findings) -> Vec<Vec<Cell>> {
     let mut out = Vec::new();
-    // Findings is a BTreeMap<rule, Vec<Finding>> — already deterministic.
-    for (rule, items) in &findings {
+    for (rule, items) in findings {
         for f in items {
             out.push(vec![
                 Cell::Str(rule.clone()),
@@ -120,7 +200,7 @@ fn run(path: &str, opts: &CheckOptions) -> Result<Vec<Vec<Cell>>, ExtensionError
             ]);
         }
     }
-    Ok(out)
+    out
 }
 
 const fn severity_label(s: Severity) -> &'static str {

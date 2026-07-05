@@ -22,10 +22,13 @@
 //! `laterite-ags4-wasm` package.
 //!
 //! Surface: `read_ags(path, group)` / `read_ags_text(content, group)`; metadata
-//! (`ags_groups`/`ags_headings`/`ags_dictionary`/`ags_relationships`); `validate_ags`;
-//! `certify_ags` (mint a `.ags.idx` certificate; `read_ags`/`validate_ags` then take
-//! a sliced / skip-revalidation fast-path when a fresh one exists); `load_ags_script`;
-//! local + `http(s)://` + `s3://` (with `LOAD httpfs`).
+//! (`ags_groups`/`ags_headings`/`ags_dictionary`/`ags_relationships`);
+//! `validate_ags` / `validate_ags_text`; `certify_ags` (mint a `.ags.idx`
+//! certificate; `read_ags`/`validate_ags` then take a sliced / skip-revalidation
+//! fast-path when a fresh one exists) / `certify_ags_text` (return the cert JSON
+//! in a column); `load_ags_script`; local + `http(s)://` + `s3://` (with
+//! `LOAD httpfs`). The path verbs take an `encoding` named param for non-UTF-8
+//! sources; the `_text` variants are UTF-8 (their input is already a VARCHAR).
 
 use quack_rs::prelude::*;
 
@@ -47,7 +50,9 @@ fn register(con: &Connection) -> ExtResult<()> {
     read_ags::register_text(con)?; // read_ags_text(content, group)
     meta::register(con)?; // ags_groups, ags_headings
     validate::register(con)?; // validate_ags(path)
+    validate::register_text(con)?; // validate_ags_text(content)
     certify::register(con)?; // certify_ags(path) → mint <path>.idx
+    certify::register_text(con)?; // certify_ags_text(content) → cert JSON in a column
     load::register(con)?; // load_ags_script(path)
     dict_fns::register(con)?; // ags_dictionary, ags_relationships
     Ok(())
