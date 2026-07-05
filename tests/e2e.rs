@@ -407,7 +407,9 @@ fn encoding_named_param() {
 #[test]
 fn text_verbs() {
     let Some(db) = load_extension() else {
-        eprintln!("skipping text-verbs E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib");
+        eprintln!(
+            "skipping text-verbs E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib"
+        );
         return;
     };
     let clean = std::fs::read_to_string(clean_fixture()).expect("read clean.ags");
@@ -462,7 +464,10 @@ fn text_verbs() {
         ))
         .expect("certify_ags_text returns the cert JSON");
     // the SAME cross-surface `.ags.idx` shape the path verb / the Python wheel write
-    assert!(cert_json.contains("\"version\": 1"), "cert json: {cert_json}");
+    assert!(
+        cert_json.contains("\"version\": 1"),
+        "cert json: {cert_json}"
+    );
     assert!(
         cert_json.contains("\"validator\": \"laterite_ags4\""),
         "cert carries the engine identity: {cert_json}"
