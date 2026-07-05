@@ -98,15 +98,18 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           branch="laterite_ags4-${version}"   # DERIVED per version — never a stale branch
           desc=extensions/laterite_ags4/description.yml
-          # A FRESH branch off the fork's main = a clean, one-file PR diff, and never
-          # a dead already-merged branch.
+          # A FRESH branch off UPSTREAM main = a clean, one-file PR diff. Base off
+          # upstream (duckdb/community-extensions), NOT the fork's own main — a fork's
+          # main goes stale (it may predate the extension being added, so it lacks
+          # extensions/laterite_ags4/ entirely, which broke this step once).
           git clone --depth 1 \
             "https://x-access-token:${GH_TOKEN}@github.com/${fork}.git" fork
-          cp description.release.yml "fork/${desc}"
           cd fork
           git config user.name "laterite-release[bot]"
           git config user.email "laterite-release@users.noreply.github.com"
-          git checkout -B "$branch" origin/main
+          git remote add upstream https://github.com/duckdb/community-extensions.git
+          git fetch --depth 1 upstream main
+          git checkout -B "$branch" upstream/main
           cp ../description.release.yml "$desc"
           if git diff --quiet -- "$desc"; then
             echo "descriptor already matches main — nothing to submit."
