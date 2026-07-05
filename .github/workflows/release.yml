@@ -90,22 +90,38 @@ jobs:
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
             echo "No COMMUNITY_EXTENSIONS_TOKEN configured — skipping the auto-update."
-            echo "Submit the uploaded descriptor, or run scripts/release.sh, to update the PR."
+            echo "Submit the uploaded descriptor, or run scripts/release.sh, to open/update the PR."
             exit 0
           fi
           fork=niko86/community-extensions
-          branch=add-laterite_ags4
+          owner="${fork%%/*}"
+          version="${GITHUB_REF_NAME#v}"
+          branch="laterite_ags4-${version}"   # DERIVED per version — never a stale branch
           desc=extensions/laterite_ags4/description.yml
-          git clone --depth 1 --branch "$branch" \
+          # A FRESH branch off the fork's main = a clean, one-file PR diff, and never
+          # a dead already-merged branch.
+          git clone --depth 1 \
             "https://x-access-token:${GH_TOKEN}@github.com/${fork}.git" fork
           cp description.release.yml "fork/${desc}"
           cd fork
           git config user.name "laterite-release[bot]"
           git config user.email "laterite-release@users.noreply.github.com"
+          git checkout -B "$branch" origin/main
+          cp ../description.release.yml "$desc"
           if git diff --quiet -- "$desc"; then
-            echo "descriptor already current — nothing to push."
+            echo "descriptor already matches main — nothing to submit."
+            exit 0
+          fi
+          git commit -am "laterite_ags4: bump to ${version}"
+          git push -f origin "$branch"
+          echo "pushed ${fork}@${branch}."
+          # Open the PR for this version if it doesn't have one yet.
+          if [ -z "$(gh pr list -R duckdb/community-extensions --state open --head "$branch" --json number --jq '.[0].number // empty')" ]; then
+            gh pr create -R duckdb/community-extensions \
+              --base main --head "${owner}:${branch}" \
+              --title "laterite_ags4: bump to ${version}" \
+              --body "Updates the \`laterite_ags4\` community extension to ${version}, pinned to release commit ${{ steps.descriptor.outputs.sha }}."
+            echo "opened a community-extensions PR for ${branch}."
           else
-            git commit -am "laterite_ags4: pin ${GITHUB_REF_NAME} (${{ steps.descriptor.outputs.sha }})"
-            git push origin "$branch"
-            echo "pushed the descriptor to ${fork}@${branch} — the community PR is updated."
+            echo "community PR for ${branch} already open — updated it."
           fi

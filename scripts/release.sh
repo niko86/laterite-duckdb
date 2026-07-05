@@ -55,9 +55,13 @@ RELEASE_BRANCH=""                                     # "" = ship from CURRENT b
 FORCE_TAG=0                                            # 1 = move an existing tag (careful)
 BUMP_VERSION=1                                         # 1 = rewrite version in the manifests
 
-PR_NUMBER=2079                                         # the community-extensions PR
-PR_FORK="niko86/community-extensions"                  # its head fork
-PR_BRANCH="add-laterite_ags4"                          # its head branch
+# community-extensions submits ONE PR per version, each on its own head branch.
+# The branch + PR are DERIVED from $VERSION below (`laterite_ags4-$VERSION`) — do
+# NOT hard-code a PR number/branch: the previous one merges and goes stale (that
+# is exactly how a release once pushed to a dead, already-merged branch and
+# submitted nothing).
+PR_FORK="niko86/community-extensions"                  # the head fork (owner's)
+PR_BRANCH="laterite_ags4-${VERSION}"                   # DERIVED, fresh per version
 DESC_PATH="extensions/laterite_ags4/description.yml"
 FORK_DIR="$(dirname "$REPO_ROOT")/community-extensions-fork"  # sibling, OUTSIDE this repo
 WATCH_CI=1                                             # 1 = gh pr checks --watch at the end
@@ -124,31 +128,48 @@ fi
 SHA="$(git -C "$EXT_DIR" rev-parse HEAD)"
 say "Release commit SHA: $SHA"
 
-# --- 7. sync the descriptor into the community-extensions PR fork -----------
-say "Finalize community-extensions PR #$PR_NUMBER (fork $PR_FORK @ $PR_BRANCH)"
-if [[ -d "$FORK_DIR/.git" ]]; then
-  git -C "$FORK_DIR" fetch origin "$PR_BRANCH"
-  git -C "$FORK_DIR" checkout "$PR_BRANCH"
-  git -C "$FORK_DIR" reset --hard "origin/$PR_BRANCH"
-else
-  gh repo clone "$PR_FORK" "$FORK_DIR" -- --branch "$PR_BRANCH"
+# --- 7. push the descriptor to a FRESH per-version community PR branch -------
+# A NEW branch off the fork's main = a clean, one-file PR diff, and never a stale
+# hard-coded branch. (If the fork's main has drifted, "Sync fork" it on GitHub
+# first — we base off origin/main here.)
+say "Community-extensions descriptor → $PR_FORK @ $PR_BRANCH (pin $SHA)"
+if [[ ! -d "$FORK_DIR/.git" ]]; then
+  gh repo clone "$PR_FORK" "$FORK_DIR"
 fi
+git -C "$FORK_DIR" fetch origin
+git -C "$FORK_DIR" checkout -B "$PR_BRANCH" origin/main
 # This repo's description.yml is the canonical descriptor; copy it over + fill the
 # placeholder ref with the real release SHA.
 cp "$EXT_DIR/description.yml" "$FORK_DIR/$DESC_PATH"
 sed -i '' "s|REPLACE_WITH_RELEASE_COMMIT_SHA|$SHA|" "$FORK_DIR/$DESC_PATH"
-say "Descriptor change in the PR fork:"
-git -C "$FORK_DIR" --no-pager diff -- "$DESC_PATH" || true
-if git -C "$FORK_DIR" diff --quiet -- "$DESC_PATH"; then
-  warn "descriptor already matches — nothing to push."
-elif confirm "Commit + push this descriptor to $PR_FORK $PR_BRANCH?"; then
-  git -C "$FORK_DIR" commit -am "laterite_ags4: pin $TAG ($SHA), exclude wasm; sync descriptor"
-  git -C "$FORK_DIR" push origin "$PR_BRANCH"
+say "Descriptor for the PR:"
+git -C "$FORK_DIR" --no-pager diff --stat origin/main -- "$DESC_PATH" || true
+if confirm "Commit + push '$PR_BRANCH' to $PR_FORK?"; then
+  git -C "$FORK_DIR" add "$DESC_PATH"
+  git -C "$FORK_DIR" commit -m "laterite_ags4: bump to $VERSION"
+  git -C "$FORK_DIR" push -f -u origin "$PR_BRANCH"
 fi
 
-# --- 8. watch the PR CI -----------------------------------------------------
-if [[ "$WATCH_CI" == 1 ]]; then
+# --- 8. open (or reuse) the community PR for this version's branch -----------
+PR_OWNER="${PR_FORK%%/*}"
+PR_NUMBER="$(gh pr list -R duckdb/community-extensions --state open \
+  --head "$PR_BRANCH" --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+if [[ -z "$PR_NUMBER" ]]; then
+  if confirm "Open a community-extensions PR for $PR_OWNER:$PR_BRANCH?"; then
+    gh pr create -R duckdb/community-extensions \
+      --base main --head "$PR_OWNER:$PR_BRANCH" \
+      --title "laterite_ags4: bump to $VERSION" \
+      --body "Updates the \`laterite_ags4\` community extension to $VERSION, pinned to release commit \`$SHA\`."
+    PR_NUMBER="$(gh pr list -R duckdb/community-extensions --state open \
+      --head "$PR_BRANCH" --json number --jq '.[0].number // empty' 2>/dev/null || true)"
+  fi
+else
+  say "Reusing open community PR #$PR_NUMBER for $PR_BRANCH"
+fi
+
+# --- 9. watch the PR CI -----------------------------------------------------
+if [[ "$WATCH_CI" == 1 && -n "${PR_NUMBER:-}" ]]; then
   say "Watching PR #$PR_NUMBER CI (Ctrl-C to stop)"
   gh pr checks "$PR_NUMBER" -R duckdb/community-extensions --watch --interval 30 || true
 fi
-say "Done — native builds pass, wasm skipped; PR #$PR_NUMBER is in the maintainers' hands."
+say "Done — community PR ${PR_NUMBER:+#$PR_NUMBER }is in the maintainers' hands."
