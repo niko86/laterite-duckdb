@@ -1,4 +1,4 @@
-//! `load_ags_script(path)` — generate the SQL to materialise an AGS4 file into
+//! `load_ags(path)` — generate the SQL to materialise an AGS4 file into
 //! persistent, indexed DuckDB tables (one `ags_<group>` per group), for the
 //! repeat-/remote-query case.
 //!
@@ -23,7 +23,7 @@ use super::source::read_parsed;
 pub fn register(con: &Connection) -> ExtResult<()> {
     register_rows(
         con,
-        "load_ags_script",
+        "load_ags",
         1,
         &[],
         vec![("seq", TypeId::BigInt), ("stmt", TypeId::Varchar)],

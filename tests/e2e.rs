@@ -144,57 +144,10 @@ fn read_ags_typed_and_keyed() {
         "shared_keys should contain LOCA_ID, got {samp_rel}"
     );
 
-    // validate_ags (opt-in): mini.ags lacks a TRAN group etc., so it has
-    // findings; every severity is from the known set.
-    let n_findings: i64 = db
-        .query_one(&format!("SELECT count(*) FROM validate_ags('{ags}')"))
-        .unwrap();
-    assert!(
-        n_findings > 0,
-        "incomplete mini.ags should yield findings, got {n_findings}"
-    );
-    let bad_sev: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}') WHERE severity NOT IN ('error','warning','fyi')"
-        ))
-        .unwrap();
-    assert_eq!(bad_sev, 0, "severities must be error/warning/fyi");
-
-    // validate_ags(path, dict_version := ...): the optional named param forces a
-    // bundled dictionary edition. It still yields findings with valid severities.
-    let forced_findings: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}', dict_version := '4.2')"
-        ))
-        .unwrap();
-    assert!(
-        forced_findings > 0,
-        "validate_ags(path, dict_version := '4.2') should still produce findings, got {forced_findings}"
-    );
-    let forced_bad_sev: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}', dict_version := '4.2') WHERE severity NOT IN ('error','warning','fyi')"
-        ))
-        .unwrap();
-    assert_eq!(forced_bad_sev, 0, "forced-edition severities must be valid");
-
-    // The severity knobs (#194): error-only by default, the FYI / WARNING tiers
-    // opt-in. mini.ags is incomplete, so it already has error findings; turning a
-    // tier on must never DROP a finding (monotonic), and severities stay valid.
-    let with_tiers: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{ags}', warnings := true, fyi := true)"
-        ))
-        .unwrap();
-    assert!(
-        with_tiers >= n_findings,
-        "warnings/fyi tiers must not drop findings: {with_tiers} < {n_findings}"
-    );
-
-    // load_ags_script: the generated SQL materialises queryable, keyed tables.
+    // load_ags: the generated SQL materialises queryable, keyed tables.
     let script: String = db
         .query_one(&format!(
-            "SELECT string_agg(stmt, chr(10) ORDER BY seq) FROM load_ags_script('{ags}')"
+            "SELECT string_agg(stmt, chr(10) ORDER BY seq) FROM load_ags('{ags}')"
         ))
         .unwrap();
     assert!(
@@ -223,112 +176,7 @@ fn read_ags_typed_and_keyed() {
     );
 }
 
-/// PR D: the `.ags.idx` certificate lifecycle — `certify_ags` mints, `read_ags`
-/// takes the sliced fast-path, `validate_ags` skips re-validation, and the
-/// freshness gate refuses a stale cert. Loads the real extension (gated on
-/// `LATERITE_AGS4_DYLIB`) and drives it all through SQL.
-#[test]
-fn cert_lifecycle() {
-    let Some(db) = load_extension() else {
-        eprintln!("skipping cert E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib");
-        return;
-    };
-    // Work on a temp COPY — the test mutates it (overwrite, mint a sibling
-    // .idx), and must never touch the committed fixture.
-    let dir = std::env::temp_dir().join(format!("laterite_ags4_cert_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create temp cert dir");
-    let clean = dir.join("clean.ags");
-    std::fs::copy(clean_fixture(), &clean).expect("copy clean.ags fixture");
-    let clean = clean.display().to_string();
-    let idx = format!("{clean}.idx");
-
-    // --- mint: a clean file certifies; 4 groups, no errors, an .idx appears ---
-    let certified: bool = db
-        .query_one(&format!("SELECT certified FROM certify_ags('{clean}')"))
-        .unwrap();
-    assert!(certified, "a clean file should certify");
-    let groups: i64 = db
-        .query_one(&format!("SELECT groups FROM certify_ags('{clean}')"))
-        .unwrap();
-    assert_eq!(groups, 4, "PROJ + TRAN + UNIT + TYPE");
-    let errors: i64 = db
-        .query_one(&format!("SELECT errors FROM certify_ags('{clean}')"))
-        .unwrap();
-    assert_eq!(errors, 0);
-
-    // the cert is a well-formed, cross-surface `.ags.idx`: version 1, this
-    // engine's identity, a 64-hex SHA — the SAME shape the Python wheel writes.
-    let cert_json = std::fs::read_to_string(&idx).expect("certify wrote <path>.idx");
-    assert!(
-        cert_json.contains("\"version\": 1"),
-        "cert json: {cert_json}"
-    );
-    assert!(
-        cert_json.contains("\"validator\": \"laterite_ags4\""),
-        "cert carries the engine identity: {cert_json}"
-    );
-
-    // --- consume (read): with a fresh cert present, read_ags slices one group's
-    // bytes; the result is identical to the whole-file read (the correctness
-    // guarantee — slice parity itself is exhaustively unit-tested in core). ---
-    let proj_rows: i64 = db
-        .query_one(&format!("SELECT count(*) FROM read_ags('{clean}','PROJ')"))
-        .unwrap();
-    assert_eq!(proj_rows, 1, "PROJ has one DATA row via the slice path");
-    let proj_id: String = db
-        .query_one(&format!("SELECT proj_id FROM read_ags('{clean}','PROJ')"))
-        .unwrap();
-    assert_eq!(proj_id, "P1");
-
-    // --- consume (validate): a fresh, matching cert means validate_ags returns
-    // clean without re-running the rule pass. (Clean either way, so this asserts
-    // the contract; the staleness case below proves the gate actually bites.) ---
-    let findings_fresh: i64 = db
-        .query_one(&format!("SELECT count(*) FROM validate_ags('{clean}')"))
-        .unwrap();
-    assert_eq!(findings_fresh, 0, "a clean certified file validates clean");
-
-    // --- refuse: a file WITH errors is not certified and writes no .idx ---
-    let mini = fixture().display().to_string();
-    let mini_certified: bool = db
-        .query_one(&format!("SELECT certified FROM certify_ags('{mini}')"))
-        .unwrap();
-    assert!(!mini_certified, "an invalid file must not certify");
-    let mini_errors: i64 = db
-        .query_one(&format!("SELECT errors FROM certify_ags('{mini}')"))
-        .unwrap();
-    assert!(mini_errors > 0, "the invalid file reports its error count");
-    assert!(
-        !std::path::Path::new(&format!("{mini}.idx")).exists(),
-        "no cert is written for an invalid file"
-    );
-
-    // --- freshness gate: overwrite the certified file with DIFFERENT, invalid
-    // content (size + SHA now differ) while its clean `.idx` still sits beside
-    // it. The cert must NOT be trusted: validate_ags re-runs and surfaces the new
-    // file's findings — observable proof the stale cert was rejected. ---
-    std::fs::write(&clean, std::fs::read(&mini).unwrap()).expect("overwrite clean.ags");
-    let findings_stale: i64 = db
-        .query_one(&format!("SELECT count(*) FROM validate_ags('{clean}')"))
-        .unwrap();
-    assert!(
-        findings_stale > 0,
-        "a size-changed file's stale cert is ignored; real findings surface ({findings_stale})"
-    );
-    // and the read path likewise ignores the stale cert: it reads the NEW content
-    // (mini.ags has a LOCA group; the original clean.ags did not).
-    let loca_now: i64 = db
-        .query_one(&format!("SELECT count(*) FROM read_ags('{clean}','LOCA')"))
-        .unwrap();
-    assert_eq!(
-        loca_now, 2,
-        "stale cert ignored — read sees the new content"
-    );
-
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// #294 #12: the `encoding` named param on `read_ags` / `validate_ags`. A
+/// #294 #12: the `encoding` named param on `read_ags`. A
 /// windows-1252 file (a non-UTF-8 byte in a DATA value) decodes correctly ONLY
 /// when the label is supplied. The fixture is written at runtime — a committed
 /// non-UTF-8 `.ags` would be mangled by the repo's `*.ags text=crlf` attribute.
@@ -371,26 +219,6 @@ fn encoding_named_param() {
         "default UTF-8 read must not decode the cp1252 byte as é (got {default:?})"
     );
 
-    // validate_ags(..., encoding := 'windows-1252') runs under the right decode —
-    // no crash, severities stay valid.
-    let bad_sev: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{p}', encoding := 'windows-1252') WHERE severity NOT IN ('error','warning','fyi')"
-        ))
-        .expect("windows-1252 validate should run");
-    assert_eq!(bad_sev, 0, "encoded validate must produce valid severities");
-
-    // certify_ags(..., encoding := 'windows-1252') accepts the same knob and runs
-    // under the decode (this single-group fixture has findings so it won't certify,
-    // but the call must succeed — parity with read_ags/validate_ags).
-    let enc_certify: Result<bool, _> = db.query_one(&format!(
-        "SELECT certified FROM certify_ags('{p}', encoding := 'windows-1252')"
-    ));
-    assert!(
-        matches!(enc_certify, Ok(false)),
-        "certify_ags must accept `encoding` and run (findings → not certified): {enc_certify:?}"
-    );
-
     // An unrecognised label is a clean bind error, not a panic.
     let bad_enc: Result<i64, _> = db.query_one(&format!(
         "SELECT count(*) FROM read_ags('{p}', 'PROJ', encoding := 'not-a-real-encoding')"
@@ -398,117 +226,6 @@ fn encoding_named_param() {
     assert!(bad_enc.is_err(), "an unknown encoding label must error");
 
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// The content variants: `validate_ags_text` / `certify_ags_text` take the AGS4
-/// as a VARCHAR (no path), the twins of `read_ags_text`. Same verdicts as the
-/// path verbs; `certify_ags_text` returns the cert JSON in a column instead of
-/// writing an `.ags.idx`.
-#[test]
-fn text_verbs() {
-    let Some(db) = load_extension() else {
-        eprintln!(
-            "skipping text-verbs E2E: set LATERITE_AGS4_DYLIB to a built liblaterite_duckdb.dylib"
-        );
-        return;
-    };
-    let clean = std::fs::read_to_string(clean_fixture()).expect("read clean.ags");
-    let mini = std::fs::read_to_string(fixture()).expect("read mini.ags");
-
-    // --- validate_ags_text: same verdict as validate_ags, from content ---
-    let clean_findings: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags_text({})",
-            sql_str(&clean)
-        ))
-        .expect("validate_ags_text on clean content");
-    assert_eq!(clean_findings, 0, "clean content validates clean");
-    let clean_path_findings: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags('{}')",
-            clean_fixture().display()
-        ))
-        .unwrap();
-    assert_eq!(
-        clean_findings, clean_path_findings,
-        "text and path validate agree on the clean file"
-    );
-    let mini_errors: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags_text({}) WHERE severity = 'error'",
-            sql_str(&mini)
-        ))
-        .expect("validate_ags_text on invalid content");
-    assert!(mini_errors > 0, "invalid content surfaces errors");
-    // the warnings knob still applies (errors-only drops the warning tier)
-    let errors_only: i64 = db
-        .query_one(&format!(
-            "SELECT count(*) FROM validate_ags_text({}, warnings := false) WHERE severity = 'warning'",
-            sql_str(&mini)
-        ))
-        .unwrap();
-    assert_eq!(errors_only, 0, "warnings := false drops the warning tier");
-
-    // --- certify_ags_text: clean content → certified, cert JSON in a column ---
-    let certified: bool = db
-        .query_one(&format!(
-            "SELECT certified FROM certify_ags_text({})",
-            sql_str(&clean)
-        ))
-        .expect("certify_ags_text on clean content");
-    assert!(certified, "clean content certifies");
-    let cert_json: String = db
-        .query_one(&format!(
-            "SELECT cert FROM certify_ags_text({})",
-            sql_str(&clean)
-        ))
-        .expect("certify_ags_text returns the cert JSON");
-    // the SAME cross-surface `.ags.idx` shape the path verb / the Python wheel write
-    assert!(
-        cert_json.contains("\"version\": 1"),
-        "cert json: {cert_json}"
-    );
-    assert!(
-        cert_json.contains("\"validator\": \"laterite_ags4\""),
-        "cert carries the engine identity: {cert_json}"
-    );
-    let groups: i64 = db
-        .query_one(&format!(
-            "SELECT groups FROM certify_ags_text({})",
-            sql_str(&clean)
-        ))
-        .unwrap();
-    assert_eq!(groups, 4, "PROJ + TRAN + UNIT + TYPE");
-
-    // --- refuse: invalid content is not certified and its cert column is NULL ---
-    let mini_certified: bool = db
-        .query_one(&format!(
-            "SELECT certified FROM certify_ags_text({})",
-            sql_str(&mini)
-        ))
-        .unwrap();
-    assert!(!mini_certified, "invalid content must not certify");
-    let cert_is_null: bool = db
-        .query_one(&format!(
-            "SELECT cert IS NULL FROM certify_ags_text({})",
-            sql_str(&mini)
-        ))
-        .unwrap();
-    assert!(cert_is_null, "an uncertified file has a NULL cert column");
-}
-
-/// A DuckDB single-quoted string literal (doubling any interior quote). AGS4 uses
-/// double-quotes, so this is just the wrapper in practice — but escape anyway.
-fn sql_str(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
-/// A complete, valid AGS4 4.2 file (PROJ + TRAN + UNIT + TYPE) that validates
-/// with zero findings — the precondition `certify_ags` requires. CRLF as the spec
-/// mandates; mirrors the Python cert suite's fixture so both surfaces certify the
-/// same bytes.
-fn clean_fixture() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/clean.ags")
 }
 
 /// Footer + LOAD the built extension into a fresh unsigned in-memory DuckDB.

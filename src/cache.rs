@@ -4,7 +4,7 @@
 //!
 //! Every path-based table function binds through [`super::source::read_parsed`],
 //! and `read_ags(path, group)` returns a single group per call. So materialising
-//! a whole file (`load_ags_script` emits one `read_ags` per group) re-parsed the
+//! a whole file (`load_ags` emits one `read_ags` per group) re-parsed the
 //! file once *per group* — and a notebook re-querying the same file re-parsed it
 //! every query. This cache memoises the parsed file so the first touch parses and
 //! every subsequent group/query is a hash hit.

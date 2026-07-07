@@ -12,7 +12,7 @@
 //! `open` + `size()` (a `stat` locally, a `HEAD` remotely) on every call, then
 //! hands the `(path, size)` to the cache. A hit returns the shared
 //! `Arc<ParsedAgs4>` *without reading or parsing the file*; a miss slurps + parses
-//! once. That's what makes `load_ags_script` (one `read_ags` per group) and a
+//! once. That's what makes `load_ags` (one `read_ags` per group) and a
 //! notebook's repeat queries pay the parse just once per file.
 
 use std::ffi::CString;
@@ -83,8 +83,7 @@ pub fn read_parsed_with_encoding(
 
 /// Resolve the optional `encoding` named param — a WHATWG label like `'utf-8'` /
 /// `'windows-1252'` — to its `&'static Encoding`; absent or blank → UTF-8, an
-/// unrecognised label is a clear bind error. Shared by `read_ags` and
-/// `validate_ags` (#294 #12).
+/// unrecognised label is a clear bind error. Used by `read_ags` (#294 #12).
 pub fn resolve_encoding(info: &BindInfo) -> Result<&'static encoding_rs::Encoding, ExtensionError> {
     match unsafe { info.get_named_parameter_value("encoding") }.as_str() {
         Ok(label) if !label.trim().is_empty() => {
@@ -100,61 +99,12 @@ pub fn resolve_encoding(info: &BindInfo) -> Result<&'static encoding_rs::Encodin
 }
 
 /// Read the *raw bytes* of `path` through the VFS — the unparsed, **uncached**
-/// slurp behind the certificate path. `certify_ags` needs the exact source bytes
-/// to hash + index, and `validate_ags`'s cert fast-path needs them to confirm the
-/// SHA; both want the bytes themselves, not the parsed form (and a cert mint /
-/// one-shot verdict isn't a hot repeat-read, so it doesn't earn a cache slot).
+/// slurp behind the certificate path. Reading a sibling `.ags.idx` certificate
+/// wants the bytes themselves, not the parsed form (and a one-shot sidecar read
+/// isn't a hot repeat-read, so it doesn't earn a cache slot).
 pub fn read_bytes(ctx: &ClientContext, path: &str) -> Result<Vec<u8>, ExtensionError> {
     let (handle, size) = open_for_read(ctx, path)?;
     slurp(&handle, path, size)
-}
-
-/// Write `data` to `path` through the VFS (create/truncate). The `.ags.idx`
-/// certificate is written this way so it lands wherever the source did — beside a
-/// local file, or via a writable VFS — rather than only ever on local disk.
-pub fn write_bytes(ctx: &ClientContext, path: &str, data: &[u8]) -> Result<(), ExtensionError> {
-    let fs = FileSystem::from_client_context(ctx).ok_or_else(|| {
-        ExtensionError::new(
-            "certify_ags: DuckDB did not provide a filesystem (requires DuckDB 1.5+)",
-        )
-    })?;
-    let c_path = CString::new(path).map_err(|_| {
-        ExtensionError::new(format!(
-            "certify_ags: path '{path}' contains an interior NUL byte"
-        ))
-    })?;
-    let handle = fs
-        .open(&c_path, &FileOpenOptions::write_create())
-        .map_err(|e| {
-            ExtensionError::new(format!(
-                "certify_ags: cannot open '{path}' for writing: {}",
-                e.message().unwrap_or_else(|| "unknown error".into())
-            ))
-        })?;
-    // `write` may make partial progress; loop until every byte is durably handed
-    // to the VFS, then sync so the sidecar is on disk before we report success.
-    let mut off = 0usize;
-    while off < data.len() {
-        let n = handle.write(&data[off..]).map_err(|e| {
-            ExtensionError::new(format!(
-                "certify_ags: write error on '{path}': {}",
-                e.message().unwrap_or_else(|| "unknown error".into())
-            ))
-        })?;
-        if n == 0 {
-            return Err(ExtensionError::new(format!(
-                "certify_ags: write to '{path}' stalled at {off} of {} bytes",
-                data.len()
-            )));
-        }
-        off += n;
-    }
-    handle.sync().map_err(|e| {
-        ExtensionError::new(format!(
-            "certify_ags: sync failed on '{path}': {}",
-            e.message().unwrap_or_else(|| "unknown error".into())
-        ))
-    })
 }
 
 /// Open `path` read-only through the VFS and resolve its size — the cheap
