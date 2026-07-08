@@ -45,7 +45,11 @@ mod source;
 mod typing;
 
 /// Register every function this extension provides.
-fn register(con: &Connection) -> ExtResult<()> {
+///
+/// `pub` so the wasm staticlib example (`src/wasm_lib.rs`) can re-emit the C
+/// entry point against it — the native cdylib path still calls it via the
+/// `entry_point_v2!` invocation below.
+pub fn register(con: &Connection) -> ExtResult<()> {
     read_ags::register(con)?; // read_ags(path, group)
     read_ags::register_text(con)?; // read_ags_text(content, group)
     meta::register(con)?; // ags_groups, ags_headings
@@ -56,4 +60,10 @@ fn register(con: &Connection) -> ExtResult<()> {
 
 // The symbol `LOAD laterite_ags4` calls. The built cdylib (+ metadata footer)
 // is published as the `laterite_ags4` community extension.
+//
+// Gated off `wasm32`: on the wasm build this crate is compiled as an rlib
+// dependency of the staticlib example (src/wasm_lib.rs), which re-emits the same
+// `#[no_mangle]` entry point. Emitting it here too would give the linked archive
+// two definitions of `laterite_ags4_init_c_api`. Native builds are unaffected.
+#[cfg(not(target_arch = "wasm32"))]
 quack_rs::entry_point_v2!(laterite_ags4_init_c_api, register);
