@@ -36,10 +36,6 @@ pub fn idx_path_for(path: &str) -> String {
 /// the supported set. Consumed by `ags_dictionary(edition := …)` to pick an
 /// edition's bundled standard dictionary. (The validator deliberately exposes no
 /// `FromStr` — the bundled set is small and fixed.)
-// The `ags_dictionary` reader that calls this lands in a later phase (its old
-// quack-rs source is still undeclared), so it reads as unused in the read-only
-// lib build until then; the `#[cfg(test)]` test below exercises it now.
-#[allow(dead_code)]
 pub fn parse_edition(s: &str) -> Result<DictVersion, String> {
     match s.trim() {
         "4.0.3" => Ok(DictVersion::V4_0_3),

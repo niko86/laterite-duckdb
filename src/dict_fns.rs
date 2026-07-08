@@ -12,7 +12,7 @@
 
 use laterite_ags4_core::keychain::shared_keys;
 use laterite_ags4_core::registry::registry;
-use laterite_ags4_validator::{DictVersion, Dictionary, rule_metadata_json};
+use laterite_ags4_validator::{Dictionary, rule_metadata_json};
 use laterite_types::sql_type;
 use libduckdb_sys as ffi;
 
@@ -24,22 +24,6 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
     relationships(con)?;
     rules(con)?;
     Ok(())
-}
-
-/// Map a user edition string to a bundled `DictVersion`, or a clear error listing
-/// the supported set. (The validator deliberately exposes no `FromStr` — the
-/// bundled set is small and fixed.)
-fn parse_edition(s: &str) -> Result<DictVersion, String> {
-    match s.trim() {
-        "4.0.3" => Ok(DictVersion::V4_0_3),
-        "4.0.4" => Ok(DictVersion::V4_0_4),
-        "4.1" => Ok(DictVersion::V4_1),
-        "4.1.1" => Ok(DictVersion::V4_1_1),
-        "4.2" => Ok(DictVersion::V4_2),
-        other => Err(format!(
-            "unknown edition '{other}'; expected one of 4.0.3, 4.0.4, 4.1, 4.1.1, 4.2"
-        )),
-    }
 }
 
 fn dictionary(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::Error>> {
@@ -61,7 +45,7 @@ fn dictionary(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::Err
         let mut rows: Vec<Vec<Cell>> = Vec::new();
         match edition {
             Some(e) => {
-                let d = Dictionary::bundled(parse_edition(&e)?);
+                let d = Dictionary::bundled(super::cert::parse_edition(&e)?);
                 let mut codes: Vec<&'static str> = d.group_codes().collect();
                 codes.sort_unstable();
                 for code in codes {
