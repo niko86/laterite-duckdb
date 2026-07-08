@@ -143,9 +143,10 @@ fn relationships(con: &Connection) -> ExtResult<()> {
 }
 
 /// `ags_rules()` — the numbered AGS4 rule catalogue (the engine's gated
-/// `rules_meta.json`) as queryable rows, so the rules `validate_ags` enforces
-/// are inspectable in SQL (#294 F#11). One row per rule; `observations` is the
-/// comma-joined O-N list, `fixable` is whether `lat-check --fix` can repair it.
+/// `rules_meta.json`) as queryable rows, so the AGS4 rules the `laterite`
+/// validator enforces are inspectable in SQL (#294 F#11). One row per rule;
+/// `observations` is the comma-joined O-N list, `fixable` is whether
+/// `lat --fix` can repair it.
 fn rules(con: &Connection) -> ExtResult<()> {
     register_rows(
         con,

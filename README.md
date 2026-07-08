@@ -90,33 +90,29 @@ DuckDB face. The same typing, keys and validation back each surface.
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
 | `ags_dictionary([edition := '4.2'])` / `ags_relationships()` | the embedded AGS dictionary and its relationship graph; no arg = the union registry, `edition :=` = that edition's bundled standard dictionary |
-| `ags_rules()` | the numbered AGS4 rule catalogue — `(rule, title, checks, severity, fixable, observations)` — the same rules `validate_ags` enforces |
-| `validate_ags(path[, dict_version := '4.2'][, warnings := false][, fyi := true][, encoding := 'windows-1252'])` | opt-in AGS4 rule check (errors + warnings by default, matching `lat-check`; `warnings := false` for errors only, `fyi := true` adds the FYI tier; `encoding :=` decodes a non-UTF-8 file, default `utf-8`); never gates a read |
-| `certify_ags(path[, dict_version := '4.2'])` | validate and, if clean, mint a `.ags.idx` **certificate** (a byte-offset index + validation provenance) beside the file; returns a one-row status (an invalid file is reported, not certified) |
-| `load_ags_script(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |
+| `ags_rules()` | the numbered AGS4 rule catalogue — `(rule, title, checks, severity, fixable, observations)` — the AGS4 rules the `laterite` validator enforces |
+| `load_ags(path)` | emits CREATE TABLE DDL to materialise an indexed, keyed copy |
 
 Paths go through DuckDB's filesystem, so local files, `http(s)://`, and `s3://`
 (with `LOAD httpfs`) all work.
 
 ### The `.ags.idx` certificate
 
-`certify_ags` writes a sibling `<file>.ags.idx` — a byte-offset index over each
-group's section plus a record of *who* validated the file clean (the engine, its
-version, the edition). It exists only for a file that validated clean, so two
-fast-paths then consult a fresh one automatically:
+A sibling `<file>.ags.idx` is a byte-offset index over each group's section plus
+a record of *who* validated the file clean (the engine, its version, the edition).
+It's **minted outside this extension** — by `lat certify` or the `laterite` Python
+wheel's `Ags4File.certify()`, which run the AGS4 rule pass and write the sidecar
+only for a file that validated clean. This read-only extension **consumes** one:
 
 - **`read_ags`** range-reads just the requested group's bytes (one `seek` + `read`,
   local or remote) instead of slurping + parsing the whole file — the cold
   single-group win, biggest on large deliveries.
-- **`validate_ags`** returns clean without re-running the rule pass.
 
-A *read* trusts a cheap **size** match (re-hashing a remote object to read one
-group would mean re-downloading it); a *verdict* (`validate_ags`) confirms the
-strong **SHA-256**. Any change to the file makes the certificate stale — it's then
-ignored and the validating whole-file path runs, so a stale `.ags.idx` can never
+A read trusts a cheap **size** match (re-hashing a remote object to read one group
+would mean re-downloading it). Any change to the file makes the certificate stale —
+it's then ignored and the whole-file read runs, so a stale `.ags.idx` can never
 serve wrong data. The certificate is a regenerable cache: delete it freely, or
-re-run `certify_ags`. Its format and checker identity match the `laterite` Python
-wheel's `Ags4File.certify()`, so a certificate minted by either is trusted by both.
+re-mint it with `lat certify`.
 
 ## Cookbook
 
@@ -148,28 +144,16 @@ JOIN read_ags('site.ags','LOCA') l ON s._parent_id = l._id
 GROUP BY l.loca_id ORDER BY mean_pi DESC;
 ```
 
-**Validate** (errors + warnings by default; `warnings := false` for errors only, `fyi := true` adds the FYI tier):
-
-```sql
-SELECT rule, "group", severity, desc FROM validate_ags('site.ags');
-```
-
-**Certify once, then read fast** — mint the `.ags.idx`; afterwards `read_ags` range-reads a
-single group and `validate_ags` returns its clean verdict without re-running the rules:
-
-```sql
-SELECT certified, errors, message FROM certify_ags('site.ags');
-```
-
-**Persist to native tables** — `load_ags_script` emits the `CREATE TABLE` DDL; run it to
+**Persist to native tables** — `load_ags` emits the `CREATE TABLE` DDL; run it to
 materialise an indexed, keyed copy you can query without the reader:
 
 ```sql
-SELECT seq, stmt FROM load_ags_script('site.ags') ORDER BY seq;
+SELECT seq, stmt FROM load_ags('site.ags') ORDER BY seq;
 ```
 
-**Read one group from a remote delivery** — with `httpfs` and a sibling `site.ags.idx`,
-only that group's bytes are fetched (an HTTP range request), not the whole file:
+**Read one group from a remote delivery** — with `httpfs` and a sibling `site.ags.idx`
+(minted externally by `lat certify` / the `laterite` library), only that group's bytes
+are fetched (an HTTP range request), not the whole file:
 
 ```sql
 LOAD httpfs;
