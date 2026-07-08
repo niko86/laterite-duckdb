@@ -111,11 +111,19 @@ jobs:
           git fetch --depth 1 upstream main
           git checkout -B "$branch" upstream/main
           cp ../description.release.yml "$desc"
-          if git diff --quiet -- "$desc"; then
-            echo "descriptor already matches main — nothing to submit."
+          # Per-function docs for the listing's "Added functions" table (columns:
+          # function, description, comment, example). Undocumented community-extensions
+          # convention — extensions/<name>/docs/function_descriptions.csv, overlaid by
+          # the site build. It populates what the C extension API can't set from
+          # function metadata (agent_data uses the same file).
+          mkdir -p extensions/laterite_ags4/docs
+          cp ../docs/function_descriptions.csv extensions/laterite_ags4/docs/function_descriptions.csv
+          git add extensions/laterite_ags4
+          if git diff --cached --quiet; then
+            echo "descriptor + docs already match main — nothing to submit."
             exit 0
           fi
-          git commit -am "laterite_ags4: bump to ${version}"
+          git commit -m "laterite_ags4: bump to ${version}"
           git push -f origin "$branch"
           echo "pushed ${fork}@${branch}."
           # Open the PR for this version if it doesn't have one yet.

@@ -41,7 +41,11 @@ path = "src/wasm_lib.rs"
 [dependencies]
 # The four library crates, from the mirror submodule (laterite/ → niko86/laterite
 # pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.
-laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core" }
+# default-features = false drops core's default `transport` feature: this is a
+# READ-ONLY reader, so it needs none of laterite-transport's zstd + age crypto.
+# Carrying it bloated the binary and broke the community-extensions mingw build
+# (zstd-sys C symbols failed to link) and the wasm build (age→getrandom).
+laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core", default-features = false }
 laterite-types = { path = "laterite/rust-packages/laterite-types" }
 laterite-ags4-validator = { path = "laterite/rust-packages/laterite-ags4-validator" }
 serde_json = "1"

@@ -1,0 +1,9 @@
+# quack-rs 0.14 and this crate require rustc 1.87 (see Cargo.toml `rust-version`).
+# The community-extensions *wasm* build image ships rustc 1.86, which fails cargo's
+# rust-version check before any compilation ("rustc 1.86.0 is not supported ...
+# requires rustc 1.87.0"). Pinning the floor here makes every community build
+# (native + wasm) resolve a toolchain that satisfies the MSRV. The native images
+# already ship >=1.87, so this only lifts the lagging wasm one.
+[toolchain]
+channel = "1.87"
+targets = ["wasm32-unknown-emscripten"]
