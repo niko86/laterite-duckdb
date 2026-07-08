@@ -14,17 +14,15 @@
 //! A **read-only SQL surface** over AGS4 — validation and certification live in
 //! the `lat` CLI / the `laterite` library, not here.
 //!
-//! ## Migration phases
+//! ## Binding
 //!
-//! Phase 0 proved the entry point, the raw-FFI table-function harness
-//! ([`ffi_table`]), and the client-context/VFS seam ([`source`]) on one
-//! function, `ags_groups`. Phase 1 ports the **read story** onto that harness:
-//! `read_ags` / `read_ags_text` (the typed, UUID-keyed group tables), the shared
-//! typing authority ([`typing`]), and the `.ags.idx` cert fast-path ([`cert`]).
-//! The remaining metadata/dictionary functions (`ags_headings`,
-//! `ags_dictionary`, `ags_relationships`, `load_ags`) are ported in later
-//! phases; their old (quack-rs) source files stay on disk, undeclared, until
-//! then.
+//! Every function runs on the raw-FFI table-function harness ([`ffi_table`]) over
+//! the duckdb crate's C Extension API, reading files through DuckDB's VFS
+//! ([`source`]): `read_ags` / `read_ags_text` (typed, UUID-keyed group tables via
+//! the shared typing authority [`typing`], with the `.ags.idx` cert fast-path
+//! [`cert`]), `ags_groups` / `ags_headings` ([`meta`]), and `ags_dictionary` /
+//! `ags_relationships` / `ags_rules` ([`dict_fns`]). `load_ags` lands in the final
+//! port.
 
 use std::error::Error;
 use std::ffi::CString;
@@ -41,6 +39,8 @@ use libduckdb_sys as ffi;
 mod cache;
 #[path = "cert.rs"]
 mod cert;
+#[path = "dict_fns.rs"]
+mod dict_fns;
 #[path = "ffi_table.rs"]
 mod ffi_table;
 #[path = "meta.rs"]
@@ -51,8 +51,7 @@ mod read_ags;
 mod source;
 #[path = "typing.rs"]
 mod typing;
-// Later phases (still on the old quack-rs surface, not yet declared as modules):
-// dict_fns, load.
+// Final port (still on the old quack-rs surface, not yet declared): load.
 
 /// Register every function this extension provides.
 ///
@@ -61,9 +60,10 @@ mod typing;
 /// the raw connection from a `Connection` (nor to register a hand-built table
 /// function) — see [`ffi_table`].
 fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
-    meta::register(con)?; // ags_groups(path)
+    meta::register(con)?; // ags_groups(path), ags_headings(path)
     read_ags::register(con)?; // read_ags(path, group [, encoding := …])
     read_ags::register_text(con)?; // read_ags_text(content, group)
+    dict_fns::register(con)?; // ags_dictionary([edition]), ags_relationships(), ags_rules()
     Ok(())
 }
 
