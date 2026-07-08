@@ -20,9 +20,8 @@
 //! the duckdb crate's C Extension API, reading files through DuckDB's VFS
 //! ([`source`]): `read_ags` / `read_ags_text` (typed, UUID-keyed group tables via
 //! the shared typing authority [`typing`], with the `.ags.idx` cert fast-path
-//! [`cert`]), `ags_groups` / `ags_headings` ([`meta`]), and `ags_dictionary` /
-//! `ags_relationships` / `ags_rules` ([`dict_fns`]). `load_ags` lands in the final
-//! port.
+//! [`cert`]), `ags_groups` / `ags_headings` ([`meta`]), `ags_dictionary` /
+//! `ags_relationships` / `ags_rules` ([`dict_fns`]), and `load_ags` ([`load`]).
 
 use std::error::Error;
 use std::ffi::CString;
@@ -43,6 +42,8 @@ mod cert;
 mod dict_fns;
 #[path = "ffi_table.rs"]
 mod ffi_table;
+#[path = "load.rs"]
+mod load;
 #[path = "meta.rs"]
 mod meta;
 #[path = "read_ags.rs"]
@@ -51,9 +52,9 @@ mod read_ags;
 mod source;
 #[path = "typing.rs"]
 mod typing;
-// Final port (still on the old quack-rs surface, not yet declared): load.
 
-/// Register every function this extension provides.
+/// Register every function this extension provides — all on the [`ffi_table`]
+/// harness.
 ///
 /// Takes the raw `duckdb_connection` (not a `duckdb::Connection`): the harness
 /// registers through raw `libduckdb-sys`, and duckdb-rs exposes no way to reach
@@ -64,6 +65,7 @@ fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
     read_ags::register(con)?; // read_ags(path, group [, encoding := …])
     read_ags::register_text(con)?; // read_ags_text(content, group)
     dict_fns::register(con)?; // ags_dictionary([edition]), ags_relationships(), ags_rules()
+    load::register(con)?; // load_ags(path)
     Ok(())
 }
 
