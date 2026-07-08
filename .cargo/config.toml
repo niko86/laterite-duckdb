@@ -1,0 +1,8 @@
+# A DuckDB wasm extension is an emscripten SIDE MODULE (relocatable, loaded via
+# dlopen — no `main`), not a standalone executable. When cargo links our cdylib
+# for wasm32-emscripten it defaults to a standalone link, which pulls
+# libstandalonewasm and fails: "wasm-ld: undefined symbol: main" (our C entry
+# point is gated off wasm32; the staticlib `[[example]]` carries it instead).
+# -sSIDE_MODULE=2 makes the link relocatable and drops the main requirement.
+[target.wasm32-unknown-emscripten]
+rustflags = ["-Clink-arg=-sSIDE_MODULE=2"]
