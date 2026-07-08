@@ -18,11 +18,12 @@
 //!
 //! This is the de-risking spike of the quack-rs → duckdb-rs migration: it proves
 //! the entry point, the raw-FFI table-function harness ([`ffi_table`]), and the
-//! client-context/VFS seam ([`source`]) on **one** function, `ags_groups`. The
-//! remaining functions (`read_ags`/`read_ags_text`, `ags_headings`,
-//! `ags_dictionary`, `ags_relationships`, `load_ags`, and the `.ags.idx` cert
-//! fast-path) are ported in later phases; their old (quack-rs) source files stay
-//! on disk, undeclared, until then.
+//! client-context/VFS seam ([`source`]). It carries the VFS-backed `ags_groups`
+//! and `ags_headings` plus the registry-only `ags_dictionary`,
+//! `ags_relationships` and `ags_rules`. The remaining functions
+//! (`read_ags`/`read_ags_text`, `load_ags`, and the `.ags.idx` cert fast-path)
+//! are ported in later phases; their old (quack-rs) source files stay on disk,
+//! undeclared, until then.
 
 use std::error::Error;
 use std::ffi::CString;
@@ -37,6 +38,8 @@ use libduckdb_sys as ffi;
 // root, `super::` is this module in both shapes.
 #[path = "cache.rs"]
 mod cache;
+#[path = "dict_fns.rs"]
+mod dict_fns;
 #[path = "ffi_table.rs"]
 mod ffi_table;
 #[path = "meta.rs"]
@@ -44,17 +47,17 @@ mod meta;
 #[path = "source.rs"]
 mod source;
 // Phase 1+ (still on the old quack-rs surface, not yet declared as modules):
-// read_ags, dict_fns, load, cert, typing.
+// read_ags, load, cert, typing.
 
-/// Register every function this extension provides. Phase 0 registers only
-/// `ags_groups`.
+/// Register every function this extension provides.
 ///
 /// Takes the raw `duckdb_connection` (not a `duckdb::Connection`): the harness
 /// registers through raw `libduckdb-sys`, and duckdb-rs exposes no way to reach
 /// the raw connection from a `Connection` (nor to register a hand-built table
 /// function) — see [`ffi_table`].
 fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
-    meta::register(con)?; // ags_groups(path)
+    meta::register(con)?; // ags_groups(path), ags_headings(path)
+    dict_fns::register(con)?; // ags_dictionary([edition]), ags_relationships(), ags_rules()
     Ok(())
 }
 
