@@ -16,7 +16,11 @@ EXTENSION_NAME=laterite_ags4
 # description.yml's `excluded_platforms`); browser SQL-over-AGS is served by the
 # dedicated `laterite-ags4-wasm` package instead.
 USE_UNSTABLE_C_API=1
-TARGET_DUCKDB_VERSION=v1.5.4
+# Aligned to the DuckDB 1.5.3 C-API line the duckdb-rs crate (1.10503.1) targets,
+# so the metadata-stamped artifact + the sqllogictest DuckDB match the ABI the
+# extension is compiled against (was v1.5.4 under quack-rs; the 1.5.x C-API is
+# stable across the line, but pin it intentionally to what we build against).
+TARGET_DUCKDB_VERSION=v1.5.3
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile

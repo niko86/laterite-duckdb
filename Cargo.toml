@@ -13,7 +13,8 @@
 name = "laterite-duckdb"
 version = "0.7.0"
 edition = "2024"
-rust-version = "1.87"      # quack-rs MSRV
+rust-version = "1.85"      # duckdb-rs (1.10503.1) MSRV = 1.85.1; the community
+                           # wasm image ships rustc 1.86, so no 1.87 pin.
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
 license = "MIT"
 publish = false
@@ -23,10 +24,13 @@ publish = false
 # `liblaterite_ags4.dylib` — the filename extension-ci-tools expects
 # (lib<EXTENSION_NAME>.dylib). Package stays `laterite-duckdb` (the repo name).
 name = "laterite_ags4"
-# `rlib` alongside `cdylib` so the wasm staticlib example (below) can link the
-# library's `register` as a normal Rust dependency; the native extension is
-# still the `cdylib`. A cdylib-only crate has no rlib for examples/tests to link.
-crate-type = ["cdylib", "rlib"]
+# cdylib ONLY (matches the reference duckdb-rs extensions). The wasm staticlib
+# example (below) compiles `src/lib.rs` in via `mod lib`, so it needs no rlib to
+# link against — and crucially, WITH an `rlib` present `cargo build --example`
+# also builds the lib's `cdylib` for wasm, whose emcc link fails ("undefined
+# symbol: main") because SIDE_MODULE is only applied to the staticlib archive.
+# cdylib-only keeps the wasm example self-contained and the entry symbol unique.
+crate-type = ["cdylib"]
 
 # WASM build path. extension-ci-tools' rust.Makefile builds the wasm artifact as
 # `cargo build --target wasm32-unknown-emscripten --example laterite_ags4`, then
@@ -39,7 +43,7 @@ crate-type = ["staticlib"]
 path = "src/wasm_lib.rs"
 
 [dependencies]
-# The four library crates, from the mirror submodule (laterite/ → niko86/laterite
+# The library crates, from the mirror submodule (laterite/ → niko86/laterite
 # pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.
 # default-features = false drops core's default `transport` feature: this is a
 # READ-ONLY reader, so it needs none of laterite-transport's zstd + age crypto.
@@ -54,20 +58,27 @@ serde_json = "1"
 # `read_ags` can decode non-UTF-8 bytes before the UTF-8-only core codec, and to
 # resolve a label to the `&'static Encoding` `CheckOptions.encoding` takes.
 encoding_rs = "0.8"
-# quack-rs's `duckdb-1-5` feature exposes file_system/client_context = DuckDB's
-# VFS, which the path/remote readers (read_ags, ags_groups, validate_ags, …) need.
-# It's the version-exact C API line (pinned via libduckdb-sys below), so this is a
-# native extension — community-extensions rebuilds it against each DuckDB release.
-quack-rs = { version = "0.14", features = ["duckdb-1-5"] }
-# Pinned to the DuckDB 1.5.3 ABI line. The VFS readers use the version-exact C API,
-# so the extension is rebuilt per DuckDB release (community-extensions' build matrix
-# does this). DuckDB-WASM is excluded — it lags this ABI; browser SQL-over-AGS is
-# served by the dedicated `laterite-ags4-wasm` package instead.
-libduckdb-sys = { version = "~1.10503", features = ["loadable-extension"] }
+# The official DuckDB Rust binding (duckdb-rs), pinned to the DuckDB 1.5.3 C-API
+# line (crate version 1.10503.1). `loadable-extension` builds the extension against
+# the C Extension API (the API struct is resolved at load, so the binary is
+# rebuilt per DuckDB release — community-extensions' build matrix does this).
+# `vtab` exposes the table-function machinery. Unlike quack-rs (MSRV 1.87), this
+# builds on rustc 1.86 = the community wasm image's toolchain, which unblocks wasm.
+duckdb = { version = "1.10503.1", features = ["loadable-extension", "vtab"] }
+# The raw DuckDB C API (the same version line duckdb-rs bundles). Needed directly
+# for the VFS calls duckdb-rs's safe surface doesn't expose:
+# duckdb_table_function_get_client_context → duckdb_client_context_get_file_system
+# → duckdb_file_system_open / duckdb_file_handle_{size,seek,read,close}. All raw
+# FFI is concentrated in src/ffi_table.rs + src/source.rs.
+libduckdb-sys = { version = "1.10503.1", features = ["loadable-extension"] }
 
 [dev-dependencies]
-# In-process E2E (LOAD the built .duckdb_extension into a bundled DuckDB). Dev-only.
-quack-rs = { version = "0.14", features = ["bundled-test", "duckdb-1-5"] }
+# In-process E2E host: LOAD the built .duckdb_extension into a bundled DuckDB.
+# `bundled` compiles DuckDB from source and statically links it — dev/test only,
+# NEVER on the shipped extension (that stays loadable, resolving the host's C API).
+# libduckdb-sys' loadable vs bundled builds can't share target/, so CI builds the
+# loadable artifact + freezes it, THEN runs the bundled-host e2e (one rebuild).
+duckdb = { version = "1.10503.1", features = ["bundled"] }
 
 # Release profile mirrors the community-extension build (small, fast cdylib).
 [profile.release]
