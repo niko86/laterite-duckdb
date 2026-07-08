@@ -284,5 +284,6 @@ fetches the matching one. Built and tested against DuckDB 1.5.4.
 
 ## License
 
-MIT. Built with [quack-rs](https://github.com/tomtom215/quack-rs); the query engine is
-the [laterite](https://github.com/niko86/laterite) AGS4 toolkit.
+MIT. Built on the official [duckdb](https://github.com/duckdb/duckdb-rs) Rust crate
+(C Extension API, zero C++); the query engine is the
+[laterite](https://github.com/niko86/laterite) AGS4 toolkit.
