@@ -5,14 +5,19 @@ extension:
   language: Rust
   build: cargo
   license: MIT
-  # wasm is BUILT (wasm_mvp / wasm_eh / wasm_threads). The C-API extension links
-  # against quack-rs's wasm32-unknown-emscripten VFS surface via a staticlib
-  # example (src/wasm_lib.rs); DuckDB-WASM (1.5.4, ≥ our 1.5.3 C-API pin) backs
-  # the path/remote readers, and read_ags_text + the metadata functions need no
-  # filesystem. Browser SQL-over-AGS is also served by the dedicated
-  # `laterite-ags4-wasm` package (parse/read → Arrow → duckdb-wasm).
+  # wasm is BUILT (wasm_mvp / wasm_eh). The C-API extension links against
+  # quack-rs's wasm32-unknown-emscripten VFS surface via a staticlib example
+  # (src/wasm_lib.rs), linked as an emscripten SIDE_MODULE (.cargo/config.toml);
+  # DuckDB-WASM (1.5.4, ≥ our 1.5.3 C-API pin) backs the path/remote readers, and
+  # read_ags_text + the metadata functions need no filesystem. Browser
+  # SQL-over-AGS is also served by the dedicated `laterite-ags4-wasm` package.
+  #
+  # wasm_threads is excluded: the community build image's emsdk-main has an
+  # emcc/binaryen version mismatch — emcc feeds wasm-opt "--enable-bulk-memory-opt"
+  # (a threads-memory-model flag) that the bundled wasm-opt doesn't recognise
+  # ("Unknown option"). Upstream toolchain bug, not our code; mvp/eh are unaffected.
   # (linux_amd64_musl: untested.)
-  excluded_platforms: "linux_amd64_musl"
+  excluded_platforms: "wasm_threads;linux_amd64_musl"
   requires_toolchains: "rust"
   maintainers:
     - niko86
