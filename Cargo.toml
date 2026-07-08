@@ -23,7 +23,20 @@ publish = false
 # `liblaterite_ags4.dylib` — the filename extension-ci-tools expects
 # (lib<EXTENSION_NAME>.dylib). Package stays `laterite-duckdb` (the repo name).
 name = "laterite_ags4"
-crate-type = ["cdylib"]
+# `rlib` alongside `cdylib` so the wasm staticlib example (below) can link the
+# library's `register` as a normal Rust dependency; the native extension is
+# still the `cdylib`. A cdylib-only crate has no rlib for examples/tests to link.
+crate-type = ["cdylib", "rlib"]
+
+# WASM build path. extension-ci-tools' rust.Makefile builds the wasm artifact as
+# `cargo build --target wasm32-unknown-emscripten --example laterite_ags4`, then
+# emcc-links the resulting `liblaterite_ags4.a` exporting `_laterite_ags4_init_c_api`.
+# This staticlib example is that build unit; see src/wasm_lib.rs for how it emits
+# the C entry point without colliding with the cdylib's copy.
+[[example]]
+name = "laterite_ags4"
+crate-type = ["staticlib"]
+path = "src/wasm_lib.rs"
 
 [dependencies]
 # The four library crates, from the mirror submodule (laterite/ → niko86/laterite

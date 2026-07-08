@@ -38,3 +38,19 @@ test_release: test_extension_release
 test_debug:   test_extension_debug
 clean:     clean_build clean_rust
 clean_all: clean_configure clean_build clean_rust
+
+# --- WASM link ordering ---------------------------------------------------
+# extension-ci-tools' base.Makefile declares the metadata target as
+#   build_extension_with_metadata_release: check_configure link_wasm_release build_extension_library_release
+# i.e. it lists the emcc link (link_wasm_release) *before* the cargo build that
+# stages the staticlib archive (build_extension_library_release). On a clean tree
+# `make wasm_mvp` therefore runs emcc against a not-yet-copied
+# `build/<plat>/release/liblaterite_ags4.a` and dies with "No such file".
+# Add the missing dependency edge so the link waits for the archive. Gated to the
+# wasm platforms (link_wasm_* is a no-op recipe off wasm) so the native build's
+# ordering is untouched; make updates build_extension_library_* at most once per
+# run, so this adds no redundant cargo invocation.
+ifneq ($(DUCKDB_WASM_PLATFORM),)
+link_wasm_release: build_extension_library_release
+link_wasm_debug:   build_extension_library_debug
+endif

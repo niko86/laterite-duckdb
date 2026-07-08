@@ -5,16 +5,14 @@ extension:
   language: Rust
   build: cargo
   license: MIT
-  # wasm is EXCLUDED for now. The value of this extension is the path/remote VFS
-  # readers (read_ags / ags_groups / … over local, http(s):// and s3://), which
-  # need DuckDB's filesystem = the version-exact unstable C API (libduckdb-sys
-  # pinned to the 1.5.3 ABI). DuckDB-WASM is on the 1.5.1 ABI, and cargo can't
-  # unify two 1.x versions in one manifest — so the wasm build can't link (cf.
-  # duckdb/extension-ci-tools#385). Browser SQL-over-AGS is already served by the
-  # dedicated `laterite-ags4-wasm` package (parse/read → Arrow → duckdb-wasm), so
-  # the extension stays native-only. Revisit when DuckDB-WASM reaches 1.5.3.
+  # wasm is BUILT (wasm_mvp / wasm_eh / wasm_threads). The C-API extension links
+  # against quack-rs's wasm32-unknown-emscripten VFS surface via a staticlib
+  # example (src/wasm_lib.rs); DuckDB-WASM (1.5.4, ≥ our 1.5.3 C-API pin) backs
+  # the path/remote readers, and read_ags_text + the metadata functions need no
+  # filesystem. Browser SQL-over-AGS is also served by the dedicated
+  # `laterite-ags4-wasm` package (parse/read → Arrow → duckdb-wasm).
   # (linux_amd64_musl: untested.)
-  excluded_platforms: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
+  excluded_platforms: "linux_amd64_musl"
   requires_toolchains: "rust"
   maintainers:
     - niko86
