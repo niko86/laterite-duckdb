@@ -1,239 +1,152 @@
-//! The `read_ags(path, group)` table function — lazy, typed, UUID-keyed.
+//! `read_ags(path, group)` + `read_ags_text(content, group)` — one AGS group as
+//! a typed, UUID-keyed table on the [`crate::ffi_table`] harness.
 //!
-//! - **bind** runs once: read the params, slurp + parse the file (raw `.ags`
-//!   has no index/footer, so a full read is inherent to the format), resolve
-//!   the group's registry descriptor, declare the output schema (`_id`,
-//!   `_parent_id`, then one column per heading typed from the file's own TYPE
-//!   row — AGS4 is self-describing), and precompute each row's deterministic
-//!   `keychain` ids.
-//! - **scan** streams the rows back a vector-size (≈2048) chunk at a time.
+//! The producer runs once at bind: it reads (or slices) + parses the file,
+//! resolves the group's registry descriptor, and materialises the typed schema
+//! — `_id`, `_parent_id`, then one column per heading typed from the file's own
+//! TYPE row (AGS4 is self-describing) — with each row's deterministic
+//! `keychain` ids. The harness then streams those rows a vector-chunk at a time.
 //!
-//! Reads go through DuckDB's virtual filesystem (see [`super::source`]), so
-//! `path` may be local, `http(s)://`, or `s3://` (with `LOAD httpfs`). A group
-//! outside the AGS dictionary (passthrough/custom) returns a clear bind error
-//! for now.
+//! - `read_ags(path, group [, encoding := …])` reads through DuckDB's virtual
+//!   filesystem (see [`super::source`]), so `path` may be local, `http(s)://`,
+//!   or `s3://` (with `LOAD httpfs`). The optional `encoding` named param
+//!   decodes non-UTF-8 source bytes before the UTF-8-only core codec.
+//! - `read_ags_text(content, group)` takes the AGS4 text inline as a VARCHAR
+//!   (already-decoded UTF-8) — no VFS, no `encoding` param.
 //!
-//! `read_ags_text(content, group)` is the content variant: it takes the AGS4
-//! file's text as a VARCHAR argument (e.g. AGS already in a column, or from
-//! DuckDB's built-in `read_text`) instead of a path — handy when the data isn't a
-//! file you can hand the VFS. Table-fn args are constant-folded at bind (where the
-//! schema is decided), so the content must be constant there.
+//! A group outside the AGS dictionary (passthrough/custom) returns a clear bind
+//! error for now.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
 
 use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4, read_ags4_bytes};
 use laterite_ags4_core::keychain;
 use laterite_ags4_core::registry::registry;
-use laterite_types::parse_value;
-use quack_rs::prelude::*;
-use quack_rs::vector::vector_size;
+use libduckdb_sys as ffi;
 
-use super::typing::{Emit, write_value};
+use super::ffi_table::{Bind, Cell, ColType, register_table};
+use super::source::{Vfs, read_parsed_with_encoding};
+use super::typing::{Emit, cell_for};
 
-/// One output data column (after the `_id` / `_parent_id` pair).
-struct Column {
-    /// AGS heading name (also the row-map key).
-    heading: String,
-    /// AGS type code from the file's TYPE row (self-describing).
-    ags_type: String,
-    kind: Emit,
-}
-
-/// Per-query scan state: the parsed rows, their precomputed ids, the output
-/// column plan, and a streaming cursor. `Send + 'static` (Strings + Vecs).
-pub struct ReadAgsState {
-    columns: Vec<Column>,
-    rows: Vec<HashMap<String, String>>,
-    /// `(id, parent_id)` per row as UUID strings; `parent_id` is `None` for a
-    /// root group (PROJ).
-    ids: Vec<(String, Option<String>)>,
-    cursor: usize,
-}
-
-/// Build `read_ags(path, group)` — the VFS path reader (local / http(s):// / s3://).
-pub fn register(con: &Connection) -> ExtResult<()> {
-    let builder = TableFunctionBuilder::new("read_ags")
-        .param(TypeId::Varchar) // path
-        .param(TypeId::Varchar) // group
-        .named_param("encoding", TypeId::Varchar) // WHATWG label; default UTF-8 (#294 #12)
-        .with_state::<ReadAgsState, _>(bind)
-        .scan(scan)
-        .build()?;
-    // SAFETY: a freshly-built table function; DuckDB takes ownership of the
-    // closures (via extra_info) for the registered function's lifetime.
-    unsafe { con.register_table(builder) }
-}
-
-/// Build `read_ags_text(content, group)` — STABLE-only variant (no VFS). No
-/// `encoding` param: `content` is a DuckDB VARCHAR, i.e. already-decoded UTF-8
-/// text, so there are no source bytes left to re-decode (unlike the `read_ags`
-/// path reader; #294 #12). A non-UTF-8 file is handled by `read_ags(path,
-/// encoding := …)`.
-pub fn register_text(con: &Connection) -> ExtResult<()> {
-    let builder = TableFunctionBuilder::new("read_ags_text")
-        .param(TypeId::Varchar) // AGS4 file content
-        .param(TypeId::Varchar) // group
-        .with_state::<ReadAgsState, _>(bind_text)
-        .scan(scan)
-        .build()?;
-    unsafe { con.register_table(builder) }
-}
-
-/// bind (path): read params, then plan. **Certificate fast-path:** if a size-fresh
-/// `<path>.idx` indexes this group, range-read just that group's bytes (O(group),
-/// the cold single-group win — and a remote ranged-GET) instead of slurping +
-/// parsing the whole file. No usable cert (absent, size-stale, group not indexed)
-/// falls back to the cached whole-file parse — the validating, always-correct
-/// default.
-fn bind(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
-    // SAFETY: both are declared `Varchar` positional params, so DuckDB
-    // guarantees they're present and string-valued during bind.
-    let path = unsafe { info.get_parameter_value(0) }.as_str()?;
-    let group = unsafe { info.get_parameter_value(1) }
-        .as_str()?
-        .trim()
-        .to_uppercase();
-
-    // Optional `encoding` named param (#294 #12): default UTF-8; a WHATWG label
-    // decodes non-UTF-8 source bytes before the UTF-8-only core codec.
-    let encoding = super::source::resolve_encoding(info)?;
-
-    // SAFETY: `info` is a live bind-info; `get_client_context` yields the
-    // query's client context, from which `source`/`cert` obtain the VFS.
-    let ctx = unsafe { info.get_client_context() };
-    // The certificate slice fast-path range-reads + parses one group's bytes as
-    // UTF-8, so it only serves the default encoding; a non-UTF-8 read takes the
-    // whole-file decode path (the cert index is a same-file optimisation, not a
-    // correctness requirement).
-    if encoding == encoding_rs::UTF_8 {
-        if let Some(ags) = super::cert::sliced_group(&ctx, &path, &group) {
-            return plan_from_ags(info, &ags, &group);
-        }
+/// The harness declares column names as `&'static str`, but AGS heading names
+/// are dynamic (read from the file's HEADING row). Distinct heading names are
+/// bounded (the dictionary plus any custom columns a file carries), so
+/// interning — leaking each distinct name exactly once and reusing it on every
+/// later bind — satisfies that requirement without re-leaking per query.
+fn intern(name: &str) -> &'static str {
+    static POOL: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let pool = POOL.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut set = pool.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(interned) = set.get(name) {
+        return interned;
     }
-    let parsed = super::source::read_parsed_with_encoding(&ctx, &path, encoding)?;
-    plan(info, &parsed, &group)
+    let leaked: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    set.insert(leaked);
+    leaked
 }
 
-/// bind (text): the AGS4 content arrives as a VARCHAR — parse it directly, no
-/// VFS needed. The content must be constant-foldable at bind (where the schema
-/// is decided).
-fn bind_text(info: &BindInfo) -> Result<ReadAgsState, ExtensionError> {
-    let content = unsafe { info.get_parameter_value(0) }.as_str()?;
-    let group = unsafe { info.get_parameter_value(1) }
-        .as_str()?
-        .trim()
-        .to_uppercase();
-    let parsed = read_ags4_bytes(content.as_bytes()).map_err(|e| {
-        ExtensionError::new(format!("read_ags_text: input did not parse as AGS4 ({e})"))
-    })?;
-    plan(info, &parsed, &group)
+/// Register `read_ags(path, group [, encoding := …])` — the VFS path reader
+/// (local / `http(s)://` / `s3://`).
+pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::Error>> {
+    register_table(con, "read_ags", 2, &["encoding"], |bind: &Bind| {
+        let path = bind.param_str(0)?;
+        let group = bind.param_str(1)?.trim().to_uppercase();
+        // Optional `encoding` named param: default UTF-8; a WHATWG label decodes
+        // non-UTF-8 source bytes before the UTF-8-only core codec.
+        let encoding = super::source::resolve_encoding(bind.named_str("encoding").as_deref())?;
+
+        // SAFETY: the producer runs during bind, so the raw bind info is live and
+        // its client context (the VFS) is valid for this call.
+        let vfs = unsafe { Vfs::from_bind(bind.raw_info()) }?;
+
+        // Certificate fast-path: a size-fresh `<path>.ags.idx` that indexes this
+        // group lets us range-read just that group's bytes (parsed as UTF-8), so
+        // it serves the default encoding only; a non-UTF-8 read takes the
+        // whole-file decode path (the cert is a same-file optimisation, not a
+        // correctness requirement).
+        if encoding == encoding_rs::UTF_8 {
+            if let Some(ags) = super::cert::sliced_group(&vfs, &path, &group) {
+                return build_table(&ags, &group);
+            }
+        }
+        let parsed = read_parsed_with_encoding(&vfs, &path, encoding)?;
+        let ags = resolve_group(&parsed, &group)?;
+        build_table(ags, &group)
+    })
 }
 
-/// Shared planning over a whole parsed file: resolve the group (a helpful error
-/// listing what's present if absent), then plan from it. Used by the path and text
-/// binds; the certificate slice path calls [`plan_from_ags`] directly with the one
-/// group it sliced.
-fn plan(info: &BindInfo, parsed: &ParsedAgs4, group: &str) -> Result<ReadAgsState, ExtensionError> {
-    let ags = parsed.get(group).ok_or_else(|| {
-        ExtensionError::new(format!(
+/// Register `read_ags_text(content, group)` — the inline-text variant (no VFS,
+/// no encoding: `content` is already a UTF-8 String).
+pub fn register_text(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::Error>> {
+    register_table(con, "read_ags_text", 2, &[], |bind: &Bind| {
+        let content = bind.param_str(0)?;
+        let group = bind.param_str(1)?.trim().to_uppercase();
+        let parsed = read_ags4_bytes(content.as_bytes())
+            .map_err(|e| format!("read_ags_text: input did not parse as AGS4 ({e})"))?;
+        let ags = resolve_group(&parsed, &group)?;
+        build_table(ags, &group)
+    })
+}
+
+/// Resolve one group out of a parsed file, with a helpful error listing what's
+/// present when it's absent.
+fn resolve_group<'a>(parsed: &'a ParsedAgs4, group: &str) -> Result<&'a AgsGroup, String> {
+    parsed.get(group).ok_or_else(|| {
+        format!(
             "group '{group}' not found (groups present: {})",
             parsed.order.join(", ")
-        ))
-    })?;
-    plan_from_ags(info, ags, group)
+        )
+    })
 }
 
-/// Declare the typed output schema (the `_id`/`_parent_id` keys, then one column
-/// per heading typed from the file's own TYPE row) and precompute each row's
-/// deterministic ids, from a single already-resolved group.
-fn plan_from_ags(
-    info: &BindInfo,
+/// Build the typed, keyed `(columns, rows)` for one resolved group: `_id`,
+/// `_parent_id`, then one column per heading typed from the file's own TYPE row,
+/// with each row's deterministic `keychain` ids precomputed (one SHA-256 each).
+#[allow(clippy::type_complexity)]
+fn build_table(
     ags: &AgsGroup,
     group: &str,
-) -> Result<ReadAgsState, ExtensionError> {
+) -> Result<(Vec<(&'static str, ColType)>, Vec<Vec<Cell>>), String> {
     let reg = registry();
     let descriptor = reg.get(group).cloned().ok_or_else(|| {
-        ExtensionError::new(format!(
+        format!(
             "group '{group}' is not in the AGS dictionary; passthrough (custom-group) support is pending"
-        ))
+        )
     })?;
 
     // Schema: the deterministic keys first, then one column per heading typed
     // from the file's own TYPE row.
-    info.add_result_column("_id", TypeId::Varchar);
-    info.add_result_column("_parent_id", TypeId::Varchar);
-    let mut columns = Vec::with_capacity(ags.headings.len());
+    let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings.len() + 2);
+    columns.push(("_id", ColType::Varchar));
+    columns.push(("_parent_id", ColType::Varchar));
+
+    // Per-heading (name, ags_type, emit-kind), aligned with the TYPE row. A
+    // heading past the end of the TYPE row (a short TYPE line) defaults to `X`
+    // (free text → VARCHAR), matching the whole-file reader.
+    let mut plan: Vec<(String, String, Emit)> = Vec::with_capacity(ags.headings.len());
     for (i, heading) in ags.headings.iter().enumerate() {
         let ags_type = ags.types.get(i).cloned().unwrap_or_else(|| "X".to_string());
         let kind = Emit::of(&ags_type);
-        info.add_result_column(heading, kind.type_id());
-        columns.push(Column {
-            heading: heading.clone(),
-            ags_type,
-            kind,
-        });
+        columns.push((intern(heading), kind.col_type()));
+        plan.push((heading.clone(), ags_type, kind));
     }
 
-    // Precompute the deterministic ids per row (one SHA-256 each — cheap).
-    let ids = ags
+    let rows: Vec<Vec<Cell>> = ags
         .rows
         .iter()
         .map(|row| {
             let (id, parent) = keychain::row_ids(reg, &descriptor, row);
-            (id.to_string(), parent.map(|u| u.to_string()))
+            let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 2);
+            cells.push(Cell::Str(id.to_string()));
+            cells.push(parent.map_or(Cell::Null, |u| Cell::Str(u.to_string())));
+            for (heading, ags_type, kind) in &plan {
+                let raw = row.get(heading).map(String::as_str);
+                cells.push(cell_for(raw, ags_type, *kind));
+            }
+            cells
         })
         .collect();
 
-    info.set_cardinality(ags.rows.len() as u64, true);
-    Ok(ReadAgsState {
-        columns,
-        rows: ags.rows.clone(),
-        ids,
-        cursor: 0,
-    })
-}
-
-/// scan: emit up to one vector-size worth of rows per call; size 0 ends it.
-fn scan(state: &mut ReadAgsState, chunk: &DataChunk) -> Result<(), ExtensionError> {
-    let cap = vector_size() as usize;
-    let start = state.cursor;
-    let n = (state.rows.len() - start).min(cap);
-    if n == 0 {
-        // SAFETY: signalling end-of-stream on the valid output chunk.
-        unsafe { chunk.set_size(0) };
-        return Ok(());
-    }
-
-    // _id (column 0)
-    {
-        let mut w = unsafe { chunk.writer(0) };
-        for i in 0..n {
-            unsafe { w.write_varchar(i, &state.ids[start + i].0) };
-        }
-    }
-    // _parent_id (column 1)
-    {
-        let mut w = unsafe { chunk.writer(1) };
-        for i in 0..n {
-            match &state.ids[start + i].1 {
-                Some(s) => unsafe { w.write_varchar(i, s) },
-                None => unsafe { w.set_null(i) },
-            }
-        }
-    }
-    // data columns (offset by the two key columns)
-    for (c, col) in state.columns.iter().enumerate() {
-        let mut w = unsafe { chunk.writer(c + 2) };
-        for i in 0..n {
-            let raw = state.rows[start + i].get(&col.heading).map(String::as_str);
-            let value = parse_value(raw, &col.ags_type);
-            // SAFETY: column c+2 was declared with `col.kind.type_id()`; i < n <= cap.
-            unsafe { write_value(&mut w, i, &value, col.kind) };
-        }
-    }
-
-    // SAFETY: n <= capacity and every column was written for rows 0..n.
-    unsafe { chunk.set_size(n) };
-    state.cursor += n;
-    Ok(())
+    Ok((columns, rows))
 }

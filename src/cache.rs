@@ -31,7 +31,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use laterite_ags4_core::ags4_codec::ParsedAgs4;
-use quack_rs::prelude::ExtensionError;
 
 /// Default cap: enough to hold a handful of typical deliveries resident in a
 /// notebook kernel without unbounded growth on a long session.
@@ -126,9 +125,9 @@ pub fn get_or_try_insert<F>(
     size: u64,
     encoding: &'static str,
     build: F,
-) -> Result<Arc<ParsedAgs4>, ExtensionError>
+) -> Result<Arc<ParsedAgs4>, String>
 where
-    F: FnOnce() -> Result<ParsedAgs4, ExtensionError>,
+    F: FnOnce() -> Result<ParsedAgs4, String>,
 {
     let key = (path.to_string(), size, encoding);
 
@@ -241,7 +240,7 @@ mod tests {
         let mut built = 0;
         let first = get_or_try_insert("/x/bad.ags", 7, "UTF-8", || {
             built += 1;
-            Err(ExtensionError::new("boom"))
+            Err("boom".to_string())
         });
         assert!(first.is_err());
         let _ = get_or_try_insert("/x/bad.ags", 7, "UTF-8", || {

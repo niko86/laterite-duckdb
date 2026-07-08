@@ -1,5 +1,5 @@
 //! The `.ags.idx` **certificate** consume seam — the sliced-read fast-path a
-//! certificate enables. Minting lives *outside* this read-only extension now
+//! certificate enables. Minting lives *outside* this read-only extension
 //! (`lat certify` / the `laterite` library); this module only reads a cert.
 //!
 //! A `.ags.idx` is a sibling sidecar (`<file>.idx`) carrying a byte-offset index
@@ -9,23 +9,23 @@
 //! assertion, never a reference into a possibly-corrupt file. Core
 //! ([`laterite_ags4_core::index`]) owns the format; this module consumes it.
 //!
-//! [`sliced_group`] (read) gates on **size** only: re-hashing a remote object to
-//! read one group would mean downloading it, defeating the ranged-read win. A
+//! [`sliced_group`] gates on **size** only: re-hashing a remote object to read
+//! one group would mean downloading it, defeating the ranged-read win. A
 //! same-size in-place edit is the documented blind spot (identical to the
 //! `(path, size)` parse cache), and `parse_group_slice` re-runs the real parser
 //! so a *shifted* file errors out (→ whole-file fallback) rather than returns
 //! garbage.
 //!
 //! This extension can read remote objects (the VFS) but cannot read their HTTP
-//! headers (quack-rs exposes `seek`/`read`/`size`, no ETag), so its freshness is
+//! headers (the VFS exposes `seek`/`read`/`size`, no ETag), so its freshness is
 //! size-based; the format's `etag`/`last_modified` fields serve a future
 //! header-capable consumer.
 
 use laterite_ags4_core::ags4_codec::AgsGroup;
 use laterite_ags4_core::index::{Sidecar, parse_group_slice};
 use laterite_ags4_validator::DictVersion;
-use quack_rs::client_context::ClientContext;
-use quack_rs::prelude::ExtensionError;
+
+use super::source::Vfs;
 
 /// The sibling certificate path for a source `path` (`site.ags` → `site.ags.idx`).
 pub fn idx_path_for(path: &str) -> String {
@@ -33,19 +33,19 @@ pub fn idx_path_for(path: &str) -> String {
 }
 
 /// Map a user edition string to a bundled `DictVersion`, or a clear error listing
-/// the supported set. Used by `ags_dictionary(edition := …)` to pick an edition's
-/// bundled standard dictionary. (The validator deliberately exposes no `FromStr` —
-/// the bundled set is small and fixed.)
-pub fn parse_edition(s: &str) -> Result<DictVersion, ExtensionError> {
+/// the supported set. Consumed by `ags_dictionary(edition := …)` to pick an
+/// edition's bundled standard dictionary. (The validator deliberately exposes no
+/// `FromStr` — the bundled set is small and fixed.)
+pub fn parse_edition(s: &str) -> Result<DictVersion, String> {
     match s.trim() {
         "4.0.3" => Ok(DictVersion::V4_0_3),
         "4.0.4" => Ok(DictVersion::V4_0_4),
         "4.1" => Ok(DictVersion::V4_1),
         "4.1.1" => Ok(DictVersion::V4_1_1),
         "4.2" => Ok(DictVersion::V4_2),
-        other => Err(ExtensionError::new(format!(
+        other => Err(format!(
             "unknown edition '{other}'; expected one of 4.0.3, 4.0.4, 4.1, 4.1.1, 4.2"
-        ))),
+        )),
     }
 }
 
@@ -53,8 +53,8 @@ pub fn parse_edition(s: &str) -> Result<DictVersion, ExtensionError> {
 /// (absent, unreadable, or a corrupt/unknown-version `.idx`). Every "no usable
 /// cert" reason collapses to `None` so the caller cleanly falls back to the
 /// whole-file read path — a broken sidecar must never be a hard error.
-fn load_sidecar(ctx: &ClientContext, path: &str) -> Option<Sidecar> {
-    let json = super::source::read_bytes(ctx, &idx_path_for(path)).ok()?;
+fn load_sidecar(vfs: &Vfs, path: &str) -> Option<Sidecar> {
+    let json = super::source::read_bytes(vfs, &idx_path_for(path)).ok()?;
     Sidecar::from_json(&json).ok()
 }
 
@@ -64,9 +64,9 @@ fn load_sidecar(ctx: &ClientContext, path: &str) -> Option<Sidecar> {
 /// no cert, a size change, a group the cert doesn't index (passthrough/absent), or
 /// a slice that won't parse (a same-size *shifted* file — the whole-file path then
 /// parses the changed bytes correctly).
-pub fn sliced_group(ctx: &ClientContext, path: &str, group: &str) -> Option<AgsGroup> {
-    let sidecar = load_sidecar(ctx, path)?;
-    let (handle, size) = super::source::open_for_read(ctx, path).ok()?;
+pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<AgsGroup> {
+    let sidecar = load_sidecar(vfs, path)?;
+    let (handle, size) = vfs.open_for_read(path).ok()?;
     // read = READ: a size match is the (cheap) freshness gate — no re-hash.
     if !sidecar.size_matches(size) {
         return None;

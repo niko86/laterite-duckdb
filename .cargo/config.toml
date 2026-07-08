@@ -1,8 +1,10 @@
-# A DuckDB wasm extension is an emscripten SIDE MODULE (relocatable, loaded via
-# dlopen — no `main`), not a standalone executable. When cargo links our cdylib
-# for wasm32-emscripten it defaults to a standalone link, which pulls
-# libstandalonewasm and fails: "wasm-ld: undefined symbol: main" (our C entry
-# point is gated off wasm32; the staticlib `[[example]]` carries it instead).
-# -sSIDE_MODULE=2 makes the link relocatable and drops the main requirement.
-[target.wasm32-unknown-emscripten]
-rustflags = ["-Clink-arg=-sSIDE_MODULE=2"]
+# The wasm SIDE_MODULE link is now owned by extension-ci-tools'
+# base.Makefile::link_wasm_release (it runs the emcc link with
+# `-sSIDE_MODULE=2 -sEXPORTED_FUNCTIONS=_laterite_ags4_init_c_api`), so we no
+# longer set the `-sSIDE_MODULE=2` rustflag here — the native cdylib and the wasm
+# staticlib example are separate artifacts and the archive is emcc-linked, not
+# cargo-linked.
+
+# Statically link the C runtime on windows (matches the reference extensions).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static"]
