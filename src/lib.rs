@@ -18,11 +18,12 @@
 //!
 //! This is the de-risking spike of the quack-rs → duckdb-rs migration: it proves
 //! the entry point, the raw-FFI table-function harness ([`ffi_table`]), and the
-//! client-context/VFS seam ([`source`]) on **one** function, `ags_groups`. The
-//! remaining functions (`read_ags`/`read_ags_text`, `ags_headings`,
-//! `ags_dictionary`, `ags_relationships`, `load_ags`, and the `.ags.idx` cert
-//! fast-path) are ported in later phases; their old (quack-rs) source files stay
-//! on disk, undeclared, until then.
+//! client-context/VFS seam ([`source`]) on `ags_groups`; `load_ags` (which
+//! reuses the same VFS producer to emit its DDL rows) rides the same harness.
+//! The remaining functions (`read_ags`/`read_ags_text`, `ags_headings`,
+//! `ags_dictionary`, `ags_relationships`, and the `.ags.idx` cert fast-path) are
+//! ported in later phases; their old (quack-rs) source files stay on disk,
+//! undeclared, until then.
 
 use std::error::Error;
 use std::ffi::CString;
@@ -39,15 +40,17 @@ use libduckdb_sys as ffi;
 mod cache;
 #[path = "ffi_table.rs"]
 mod ffi_table;
+#[path = "load.rs"]
+mod load;
 #[path = "meta.rs"]
 mod meta;
 #[path = "source.rs"]
 mod source;
 // Phase 1+ (still on the old quack-rs surface, not yet declared as modules):
-// read_ags, dict_fns, load, cert, typing.
+// read_ags, dict_fns, cert, typing.
 
-/// Register every function this extension provides. Phase 0 registers only
-/// `ags_groups`.
+/// Register every function this extension provides. So far: `ags_groups` and
+/// `load_ags` (both on the [`ffi_table`] harness).
 ///
 /// Takes the raw `duckdb_connection` (not a `duckdb::Connection`): the harness
 /// registers through raw `libduckdb-sys`, and duckdb-rs exposes no way to reach
@@ -55,6 +58,7 @@ mod source;
 /// function) — see [`ffi_table`].
 fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
     meta::register(con)?; // ags_groups(path)
+    load::register(con)?; // load_ags(path)
     Ok(())
 }
 
