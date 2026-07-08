@@ -10,3 +10,6 @@ build/
 configure/
 .env
 __pycache__/
+
+# macOS finder junk
+.DS_Store
