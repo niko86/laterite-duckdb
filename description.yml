@@ -63,6 +63,8 @@ docs:
       repeat-/remote-query store.
     - **Local or remote** — reads go through DuckDB's virtual filesystem, so local paths,
       `http(s)://` and `s3://` (with `LOAD httpfs`) all work on one code path.
+    - **Native + wasm** — built for every community-extensions platform, DuckDB-WASM
+      included: the same reader for native and browser DuckDB.
 
     ### Functions
 

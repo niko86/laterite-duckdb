@@ -15,11 +15,12 @@
 //! [`keychain`](laterite_ags4_core::keychain) and `laterite-types`' single typing
 //! authority.
 //!
-//! **Native-only.** The path/remote readers use DuckDB's filesystem (the VFS), which
-//! is the version-exact C API line — so the extension is rebuilt against each DuckDB
-//! release (community-extensions' build matrix does this). It is NOT built for
-//! DuckDB-WASM (which lags this ABI); browser SQL-over-AGS is served by the dedicated
-//! `laterite-ags4-wasm` package.
+//! **Built for native + wasm.** The path/remote readers use DuckDB's filesystem
+//! (the VFS) — the version-exact C API line — so the extension is rebuilt against
+//! each DuckDB release (the community-extensions build matrix does this, wasm
+//! included: the C-API extension links the `wasm32-unknown-emscripten` VFS via a
+//! staticlib example, `src/wasm_lib.rs`). The dedicated `laterite-ags4-wasm`
+//! package also serves browser SQL-over-AGS.
 //!
 //! A **read-only SQL surface** over AGS4 — validation and certification live in
 //! the `lat` CLI / the `laterite` library, not here.
