@@ -43,9 +43,11 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      # Cheap fail-fast before any build.
+      # Cheap fail-fast before any build. Scope to THIS package — `--all` reaches
+      # into the vendored `laterite/` submodule (a path-dep workspace) and would
+      # fmt-check code we don't own.
       - name: cargo fmt --check
-        run: cargo fmt --all -- --check
+        run: cargo fmt -p laterite-duckdb -- --check
 
       # The manifest version and the community descriptor version must agree — a
       # drift ships a mislabelled extension. (The number itself tracks the
