@@ -81,7 +81,10 @@ impl Vfs {
     /// every read does before committing to a slurp. A negative size is a VFS
     /// error (not clamped to 0, which would mask it); an absurd reported size is
     /// rejected up front so it can neither key the cache nor drive an allocation.
-    fn open_for_read(&self, path: &str) -> Result<(FileHandle, u64), String> {
+    ///
+    /// `pub(crate)` because the cert fast-path ([`super::cert`]) opens the source
+    /// itself to `seek` + range-read one group's bytes.
+    pub(crate) fn open_for_read(&self, path: &str) -> Result<(FileHandle, u64), String> {
         let c_path = CString::new(path)
             .map_err(|_| format!("read_ags: path '{path}' contains an interior NUL byte"))?;
         unsafe {
@@ -130,13 +133,16 @@ impl Drop for Vfs {
 }
 
 /// An open VFS file handle. Destroyed (which closes it) on drop.
-struct FileHandle {
+///
+/// `pub(crate)` (with `pub(crate)` methods) so the cert fast-path
+/// ([`super::cert`]) can `seek` + range-read one group's slice.
+pub(crate) struct FileHandle {
     handle: ffi::duckdb_file_handle,
 }
 
 impl FileHandle {
     /// Read up to `buf.len()` bytes, returning the count (0 at EOF).
-    fn read(&self, buf: &mut [u8]) -> Result<usize, String> {
+    pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, String> {
         let n = unsafe {
             ffi::duckdb_file_handle_read(
                 self.handle,
@@ -149,6 +155,17 @@ impl FileHandle {
         } else {
             Ok(n as usize)
         }
+    }
+
+    /// Seek the read position to an absolute byte offset — the cert fast-path's
+    /// ranged read starts a group's slice here (a remote ranged-GET on
+    /// http/s3). Mirrors quack-rs's `FileHandle::seek`.
+    pub(crate) fn seek(&self, position: u64) -> Result<(), String> {
+        let state = unsafe { ffi::duckdb_file_handle_seek(self.handle, position as i64) };
+        if state != ffi::DuckDBSuccess {
+            return Err(format!("read_ags: seek to {position} failed"));
+        }
+        Ok(())
     }
 }
 
@@ -191,20 +208,60 @@ fn slurp(handle: &FileHandle, path: &str, size: u64) -> Result<Vec<u8>, String> 
     Ok(buf)
 }
 
-/// Read + parse the AGS4 file at `path` through the VFS, memoised by
-/// `(path, size)`. Structural malformation surfaces here with a message pointing
-/// at validation/repair — the "assume valid, else say so" contract.
-///
-/// Phase 0 reads UTF-8 only; the `encoding` named-param path (non-UTF-8 decode)
-/// rides `read_ags` and lands with that function in a later phase.
+/// Read + parse the AGS4 file at `path` through the VFS as UTF-8, memoised by
+/// `(path, size, "UTF-8")`. The default reader (`ags_groups`, `load_ags`); a
+/// thin wrapper over [`read_parsed_with_encoding`].
 pub fn read_parsed(vfs: &Vfs, path: &str) -> Result<Arc<ParsedAgs4>, String> {
+    read_parsed_with_encoding(vfs, path, encoding_rs::UTF_8)
+}
+
+/// Read + parse the AGS4 file at `path` through the VFS, decoding the source
+/// bytes with `encoding` before the UTF-8-only core codec. Memoised by
+/// `(path, size, encoding.name())`, so the same file read as UTF-8 and as
+/// windows-1252 memoise to distinct parses. Structural malformation surfaces
+/// here with a message pointing at validation/repair — the "assume valid, else
+/// say so" contract.
+pub fn read_parsed_with_encoding(
+    vfs: &Vfs,
+    path: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> Result<Arc<ParsedAgs4>, String> {
     let (handle, size) = vfs.open_for_read(path)?;
-    super::cache::get_or_try_insert(path, size, "UTF-8", || {
+    super::cache::get_or_try_insert(path, size, encoding.name(), || {
         let buf = slurp(&handle, path, size)?;
-        read_ags4_bytes(&buf).map_err(|e| {
+        // UTF-8 is the core codec's native form (no copy); any other WHATWG
+        // label is decoded to UTF-8 first (the malformed-sequence fallback is
+        // encoding_rs's replacement char — a decode never errors out here).
+        let decoded = if encoding == encoding_rs::UTF_8 {
+            std::borrow::Cow::Borrowed(&buf[..])
+        } else {
+            let (text, _, _) = encoding.decode(&buf);
+            std::borrow::Cow::Owned(text.into_owned().into_bytes())
+        };
+        read_ags4_bytes(decoded.as_ref()).map_err(|e| {
             format!(
                 "read_ags: '{path}' did not parse as AGS4 ({e}); the file may be invalid — validate/repair it first"
             )
         })
     })
+}
+
+/// Read a whole (small, un-cached) file through the VFS — used for the `.ags.idx`
+/// sidecar. Unlike [`read_parsed`], this is not memoised (the sidecar is tiny and
+/// read at most once per bind); a missing file surfaces as an error so the cert
+/// path can `.ok()?` it into a clean fallback.
+pub fn read_bytes(vfs: &Vfs, path: &str) -> Result<Vec<u8>, String> {
+    let (handle, size) = vfs.open_for_read(path)?;
+    slurp(&handle, path, size)
+}
+
+/// Resolve an optional WHATWG encoding label (`read_ags(encoding := …)`) to a
+/// static [`encoding_rs::Encoding`]. Absent or blank → UTF-8 (the default); an
+/// unrecognised label is a clean error, not a panic.
+pub fn resolve_encoding(label: Option<&str>) -> Result<&'static encoding_rs::Encoding, String> {
+    match label.map(str::trim).filter(|l| !l.is_empty()) {
+        None => Ok(encoding_rs::UTF_8),
+        Some(l) => encoding_rs::Encoding::for_label(l.as_bytes())
+            .ok_or_else(|| format!("read_ags: unknown encoding label '{l}'")),
+    }
 }

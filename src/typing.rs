@@ -1,23 +1,23 @@
-//! AGS type code → DuckDB output column type + value writer (P1 subset).
+//! AGS type code → DuckDB output column type + typed cell — the one typing
+//! authority the read functions share.
 //!
 //! Every cell is routed through `laterite_types::parse_value` — the single
 //! typing authority already shared by `laterite.read`, the wasm explorer, and
 //! the `.ags5db` writer — so `read_ags` types a column identically to those
 //! hosts *by construction*, not by re-implementation.
 //!
-//! P1 emits the numeric/bool families natively (the flagship: `2DP` → DOUBLE,
-//! `0DP` → BIGINT, `YN` → BOOLEAN, `ID`/`X`/… → VARCHAR) and carries the
-//! temporal families (`DT`/date/time) through as their canonical VARCHAR
+//! The numeric/bool families are emitted natively (the flagship: `2DP` →
+//! DOUBLE, `0DP` → BIGINT, `YN` → BOOLEAN, `ID`/`X`/… → VARCHAR); the temporal
+//! families (`DT`/date/time) are carried through as their canonical VARCHAR
 //! string. Native TIMESTAMP/DATE/TIME typing is a deliberate follow-up — the
-//! writers exist (`VectorWriter::write_timestamp`/`write_date`/`write_time`),
-//! but the canonical-string → epoch-unit conversion is deferred so P1 stays
-//! tight and the flagship (born-typed numerics) is unambiguous.
+//! canonical-string → epoch-unit conversion is deferred so the flagship
+//! (born-typed numerics) stays unambiguous.
 
-use laterite_types::{CanonicalType, canonical_type};
-use quack_rs::prelude::{TypeId, VectorWriter};
-use serde_json::Value;
+use laterite_types::{CanonicalType, canonical_type, parse_value};
 
-/// The physical kind a column is emitted as in P1.
+use super::ffi_table::{Cell, ColType};
+
+/// The physical kind a heading column is emitted as.
 #[derive(Clone, Copy)]
 pub enum Emit {
     Varchar,
@@ -38,45 +38,34 @@ impl Emit {
         }
     }
 
-    pub fn type_id(self) -> TypeId {
+    /// The harness column type this emit kind declares.
+    pub fn col_type(self) -> ColType {
         match self {
-            Emit::Varchar => TypeId::Varchar,
-            Emit::Double => TypeId::Double,
-            Emit::BigInt => TypeId::BigInt,
-            Emit::Bool => TypeId::Boolean,
+            Emit::Varchar => ColType::Varchar,
+            Emit::Double => ColType::Double,
+            Emit::BigInt => ColType::BigInt,
+            Emit::Bool => ColType::Boolean,
         }
     }
 }
 
-/// Write a parsed value into `writer` at row `idx` as `kind`. A JSON-null
-/// (whatever `parse_value` deemed empty/unparseable) becomes SQL NULL — the
-/// born-typed behaviour `laterite.read` gives (a non-conforming numeric cell
-/// is NULL, never an error).
-///
-/// # Safety
-/// `writer` must target the column declared with `kind.type_id()`, and `idx`
-/// must be within the output chunk's capacity.
-pub unsafe fn write_value(writer: &mut VectorWriter, idx: usize, value: &Value, kind: Emit) {
+/// Type one raw AGS cell as a [`Cell`] under `kind`. The raw string is routed
+/// through `parse_value` (the shared authority), then mapped to the physical
+/// variant `kind` declared. A JSON-null (whatever `parse_value` deemed
+/// empty/unparseable) becomes `Cell::Null` — the born-typed behaviour
+/// `laterite.read` gives (a non-conforming numeric cell is NULL, never an
+/// error).
+pub fn cell_for(raw: Option<&str>, ags_type: &str, kind: Emit) -> Cell {
+    let value = parse_value(raw, ags_type);
     if value.is_null() {
-        unsafe { writer.set_null(idx) };
-        return;
+        return Cell::Null;
     }
     match kind {
-        Emit::Double => match value.as_f64() {
-            Some(f) => unsafe { writer.write_f64(idx, f) },
-            None => unsafe { writer.set_null(idx) },
-        },
-        Emit::BigInt => match value.as_i64() {
-            Some(n) => unsafe { writer.write_i64(idx, n) },
-            None => unsafe { writer.set_null(idx) },
-        },
-        Emit::Bool => match value.as_bool() {
-            Some(b) => unsafe { writer.write_bool(idx, b) },
-            None => unsafe { writer.set_null(idx) },
-        },
-        Emit::Varchar => match value.as_str() {
-            Some(s) => unsafe { writer.write_varchar(idx, s) },
-            None => unsafe { writer.set_null(idx) },
-        },
+        Emit::Double => value.as_f64().map_or(Cell::Null, Cell::Double),
+        Emit::BigInt => value.as_i64().map_or(Cell::Null, Cell::Int),
+        Emit::Bool => value.as_bool().map_or(Cell::Null, Cell::Bool),
+        Emit::Varchar => value
+            .as_str()
+            .map_or(Cell::Null, |s| Cell::Str(s.to_string())),
     }
 }

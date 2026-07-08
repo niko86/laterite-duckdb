@@ -14,15 +14,17 @@
 //! A **read-only SQL surface** over AGS4 — validation and certification live in
 //! the `lat` CLI / the `laterite` library, not here.
 //!
-//! ## Phase 0 (binding-migration spike)
+//! ## Migration phases
 //!
-//! This is the de-risking spike of the quack-rs → duckdb-rs migration: it proves
-//! the entry point, the raw-FFI table-function harness ([`ffi_table`]), and the
-//! client-context/VFS seam ([`source`]) on **one** function, `ags_groups`. The
-//! remaining functions (`read_ags`/`read_ags_text`, `ags_headings`,
-//! `ags_dictionary`, `ags_relationships`, `load_ags`, and the `.ags.idx` cert
-//! fast-path) are ported in later phases; their old (quack-rs) source files stay
-//! on disk, undeclared, until then.
+//! Phase 0 proved the entry point, the raw-FFI table-function harness
+//! ([`ffi_table`]), and the client-context/VFS seam ([`source`]) on one
+//! function, `ags_groups`. Phase 1 ports the **read story** onto that harness:
+//! `read_ags` / `read_ags_text` (the typed, UUID-keyed group tables), the shared
+//! typing authority ([`typing`]), and the `.ags.idx` cert fast-path ([`cert`]).
+//! The remaining metadata/dictionary functions (`ags_headings`,
+//! `ags_dictionary`, `ags_relationships`, `load_ags`) are ported in later
+//! phases; their old (quack-rs) source files stay on disk, undeclared, until
+//! then.
 
 use std::error::Error;
 use std::ffi::CString;
@@ -37,17 +39,22 @@ use libduckdb_sys as ffi;
 // root, `super::` is this module in both shapes.
 #[path = "cache.rs"]
 mod cache;
+#[path = "cert.rs"]
+mod cert;
 #[path = "ffi_table.rs"]
 mod ffi_table;
 #[path = "meta.rs"]
 mod meta;
+#[path = "read_ags.rs"]
+mod read_ags;
 #[path = "source.rs"]
 mod source;
-// Phase 1+ (still on the old quack-rs surface, not yet declared as modules):
-// read_ags, dict_fns, load, cert, typing.
+#[path = "typing.rs"]
+mod typing;
+// Later phases (still on the old quack-rs surface, not yet declared as modules):
+// dict_fns, load.
 
-/// Register every function this extension provides. Phase 0 registers only
-/// `ags_groups`.
+/// Register every function this extension provides.
 ///
 /// Takes the raw `duckdb_connection` (not a `duckdb::Connection`): the harness
 /// registers through raw `libduckdb-sys`, and duckdb-rs exposes no way to reach
@@ -55,6 +62,8 @@ mod source;
 /// function) — see [`ffi_table`].
 fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
     meta::register(con)?; // ags_groups(path)
+    read_ags::register(con)?; // read_ags(path, group [, encoding := …])
+    read_ags::register_text(con)?; // read_ags_text(content, group)
     Ok(())
 }
 
