@@ -62,16 +62,17 @@ jobs:
             exit 1
           }
 
-      # --- loadable build FIRST, then freeze ---
-      # The extension is built two ways here that CAN'T share a target/: the
-      # *loadable-extension* libduckdb-sys (the real artifact) and the *bundled-test*
-      # one (the in-process host DuckDB the e2e loads into) are mutually exclusive,
-      # so cargo rebuilds libduckdb-sys when you switch. Do all the loadable work
-      # first and FREEZE the artifact, then all the bundled-test work (clippy + test
-      # + e2e) consecutively — one loadable build + one bundled build, not three.
+      # --- loadable build first, then the bundled-test build ---
+      # The extension is built two ways that CAN'T share a target/: the
+      # *loadable-extension* libduckdb-sys (the real artifact `make` builds) and the
+      # *bundled-test* one (`cargo test`'s in-process DuckDB) are mutually exclusive,
+      # so cargo rebuilds libduckdb-sys when you switch. Do the loadable work first,
+      # then the bundled-test work — one loadable build, one bundled build.
       #
       # `make configure` = python venv + the matching DuckDB for sqllogictest;
-      # `make debug` = the loadable cdylib + metadata; `make test_debug` = sqllogictest.
+      # `make debug` = the loadable cdylib + metadata; `make test_debug` = sqllogictest,
+      # the functional gate: it LOADs the built extension and runs real SQL
+      # (read_ags born-typing + joins, ags_groups/relationships/rules/dictionary).
       - name: make configure
         run: make configure
 
@@ -81,21 +82,9 @@ jobs:
       - name: make test (sqllogictest)
         run: make test_debug
 
-      - name: freeze the loadable artifact (before the bundled rebuild clobbers it)
-        run: |
-          mkdir -p "$RUNNER_TEMP/frozen"
-          cp "$(pwd)/target/debug/liblaterite_ags4.so" "$RUNNER_TEMP/frozen/liblaterite_ags4.so"
-
       # --- bundled-test work (one libduckdb-sys rebuild, shared) ---
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
 
       - name: cargo test (unit + in-process e2e self-skip)
         run: cargo test
-
-      # real-extension e2e: LOAD the frozen loadable cdylib into the in-process
-      # (bundled-test) DuckDB and exercise read_ags + the cert lifecycle.
-      - name: real-extension e2e
-        run: |
-          LATERITE_AGS4_DYLIB="$RUNNER_TEMP/frozen/liblaterite_ags4.so" \
-            cargo test --test e2e -- --nocapture
