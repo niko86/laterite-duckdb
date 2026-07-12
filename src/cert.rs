@@ -23,7 +23,7 @@
 
 use laterite_ags4_core::ags4_codec::AgsGroup;
 use laterite_ags4_core::index::{Sidecar, parse_group_slice};
-use laterite_ags4_validator::DictVersion;
+use laterite_ags4_reference::dict::DictVersion;
 
 use super::source::Vfs;
 
