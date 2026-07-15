@@ -64,6 +64,31 @@ fn load_sidecar(vfs: &Vfs, path: &str) -> Option<Sidecar> {
 /// no cert, a size change, a group the cert doesn't index (passthrough/absent), or
 /// a slice that won't parse (a same-size *shifted* file — the whole-file path then
 /// parses the changed bytes correctly).
+/// The one span we may slice for `group`, or `None` if a sliced read cannot be trusted.
+///
+/// A GROUP may legally appear more than once in an AGS4 file, and the certificate records
+/// **every** span it occupies. Only a group that appears exactly ONCE can be answered by a
+/// range-read: for a redeclared group the section is not contiguous, and reading the first
+/// span returns some of the rows while looking exactly like a complete, correct read.
+///
+/// That is what this extension did before the `.ags.idx` v2 format — not because it chose
+/// the first span, but because v1's index had nowhere to record the others: `groups` mapped
+/// a code to ONE `Range`, first-seen-wins, so the truncation was already baked into the
+/// certificate and no consumer could see past it. v2 maps a code to `Vec<Range>`, which is
+/// what makes this check possible at all.
+///
+/// `None` here is not a failure — it is the caller taking the whole-file parse, which sees
+/// every span. The fast path is an optimisation, and an optimisation that returns fewer
+/// rows than the slow path is a wrong answer, not a fast one.
+fn sliceable_span(sidecar: &Sidecar, group: &str) -> Option<(u64, u64)> {
+    match sidecar.groups.get(group).map(Vec::as_slice) {
+        // Exactly one span: the section is contiguous, so a range-read is complete.
+        Some([only]) => Some(*only),
+        // Absent (a passthrough/unknown group), or REDECLARED. Both fall back.
+        _ => None,
+    }
+}
+
 pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<AgsGroup> {
     let sidecar = load_sidecar(vfs, path)?;
     let (handle, size) = vfs.open_for_read(path).ok()?;
@@ -71,7 +96,7 @@ pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<AgsGroup> {
     if !sidecar.size_matches(size) {
         return None;
     }
-    let (start, end) = sidecar.groups.get(group).copied()?;
+    let (start, end) = sliceable_span(&sidecar, group)?;
     if end < start || end > size {
         return None; // a cert inconsistent with the live size → fall back
     }
@@ -106,5 +131,80 @@ mod tests {
         assert!(parse_edition("4.2").is_ok());
         assert!(parse_edition(" 4.1.1 ").is_ok()); // trimmed
         assert!(parse_edition("4.9").is_err());
+    }
+
+    /// An AGS4 file whose LOCA section is REDECLARED — two `"GROUP","LOCA"` records, one
+    /// row each. A whole-file parse returns both rows. A sliced read of the first span
+    /// returns one, and looks exactly like a complete answer.
+    const REDECLARED: &str = concat!(
+        "\"GROUP\",\"LOCA\"\r\n",
+        "\"HEADING\",\"LOCA_ID\"\r\n",
+        "\"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n",
+        "\"DATA\",\"BH01\"\r\n\r\n",
+        "\"GROUP\",\"PROJ\"\r\n",
+        "\"HEADING\",\"PROJ_ID\"\r\n",
+        "\"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n",
+        "\"DATA\",\"P1\"\r\n\r\n",
+        "\"GROUP\",\"LOCA\"\r\n",
+        "\"HEADING\",\"LOCA_ID\"\r\n",
+        "\"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n",
+        "\"DATA\",\"BH02\"\r\n",
+    );
+
+    fn stamp() -> laterite_ags4_core::index::ValidationStamp {
+        laterite_ags4_core::index::ValidationStamp {
+            validator: "test".into(),
+            engine: "0000000000000000".into(),
+            compat: None,
+            checked_at: "2026-07-14T00:00:00Z".into(),
+            edition: laterite_ags4_core::index::EditionInput::Auto {
+                resolved: "4.1.1".into(),
+                resolution: laterite_ags4_reference::dict::DictResolution::Fallback,
+            },
+            encoding: "UTF-8".into(),
+            errors: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
+            warnings: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
+            fyi: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
+        }
+    }
+
+    /// **The bug this fixes.** A redeclared group has no single contiguous section, so it
+    /// cannot be answered by a range-read — and the honest reply is to decline the fast
+    /// path, not to return the first span. Returning the first span is a *wrong* answer
+    /// that is indistinguishable from a right one: the rows are well-formed, the query
+    /// succeeds, and the second section is simply missing.
+    #[test]
+    fn a_redeclared_group_refuses_the_sliced_read() {
+        let sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
+        assert_eq!(
+            sidecar.groups.get("LOCA").map(Vec::len),
+            Some(2),
+            "the v2 cert records BOTH spans — v1 could not, which is why this bug was invisible"
+        );
+        assert_eq!(
+            sliceable_span(&sidecar, "LOCA"),
+            None,
+            "a redeclared group must fall back to the whole-file parse, which sees both rows"
+        );
+    }
+
+    /// The fast path is not disabled — a group that appears once is still sliced.
+    #[test]
+    fn a_single_span_group_is_still_sliced() {
+        let sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
+        let (start, end) = sliceable_span(&sidecar, "PROJ").expect("PROJ appears exactly once");
+        assert!(start < end);
+        let slice = &REDECLARED.as_bytes()[start as usize..end as usize];
+        assert!(
+            slice.starts_with(b"\"GROUP\",\"PROJ\""),
+            "the span begins at PROJ's own GROUP record"
+        );
+    }
+
+    /// A group the cert does not index at all (passthrough / absent) also declines.
+    #[test]
+    fn an_absent_group_refuses_the_sliced_read() {
+        let sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
+        assert_eq!(sliceable_span(&sidecar, "SAMP"), None);
     }
 }

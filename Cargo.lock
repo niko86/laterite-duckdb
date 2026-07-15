@@ -1112,10 +1112,13 @@ dependencies = [
 name = "laterite-ags4-reference"
 version = "0.7.0"
 dependencies = [
+ "laterite-types",
  "phf",
  "phf_codegen",
  "serde",
  "serde_json",
+ "sha2",
+ "uuid",
 ]
 
 [[package]]
