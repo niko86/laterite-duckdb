@@ -47,6 +47,39 @@ WHERE l._id IS NULL;
 ----
 0
 
+# _content_hash (#448): the row's VALUE fingerprint — the value twin of `_id`'s
+# identity, always emitted (trailing). Byte-identical to the wheel / Node / browser
+# (one shared keychain leaf), so these literals — the wheel's own output for
+# mini.ags — ARE the cross-surface parity proof.
+query T
+SELECT _content_hash FROM read_ags('test/sql/mini.ags', 'LOCA') WHERE loca_id = 'BH01';
+----
+22dd55fd-2ac8-8d07-8220-25cd62ce47fd
+
+query T
+SELECT _content_hash FROM read_ags('test/sql/mini.ags', 'LOCA') WHERE loca_id = 'BH02';
+----
+089b7a54-d873-88e2-842d-3bbb17ded1c8
+
+# Distinct row values → distinct hashes.
+query I
+SELECT (count(DISTINCT _content_hash) = count(*))::INTEGER FROM read_ags('test/sql/mini.ags', 'LOCA');
+----
+1
+
+# Value-dedup: DISTINCT ON (_content_hash) collapses genuinely-identical rows. LOCA
+# UNION'd with itself is 4 rows / 2 distinct values → 2 survive.
+query I
+SELECT count(*)::INTEGER FROM (
+  SELECT DISTINCT ON (_content_hash) * FROM (
+    SELECT * FROM read_ags('test/sql/mini.ags', 'LOCA')
+    UNION ALL
+    SELECT * FROM read_ags('test/sql/mini.ags', 'LOCA')
+  )
+);
+----
+2
+
 # Metadata: 3 groups; LOCA's parent is PROJ.
 query I
 SELECT count(*) FROM ags_groups('test/sql/mini.ags');

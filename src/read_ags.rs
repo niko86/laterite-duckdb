@@ -115,9 +115,9 @@ fn build_table(
         )
     })?;
 
-    // Schema: the deterministic keys first, then one column per heading typed
-    // from the file's own TYPE row.
-    let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings.len() + 2);
+    // Schema: the deterministic identity keys first, then one column per heading
+    // typed from the file's own TYPE row, then a trailing `_content_hash`.
+    let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings.len() + 3);
     columns.push(("_id", ColType::Varchar));
     columns.push(("_parent_id", ColType::Varchar));
 
@@ -132,18 +132,46 @@ fn build_table(
         plan.push((heading.clone(), ags_type, kind));
     }
 
+    // `_content_hash` (trailing): the typed, blank- and unit-aware VALUE
+    // fingerprint of the whole row — the value twin of `_id`'s IDENTITY, minted
+    // from the SAME `keychain` leaf as the wheel / Node / browser, so a row
+    // hashes byte-identically across every surface. Trailing keeps heading
+    // positions stable; it enables `SELECT DISTINCT ON (_content_hash)`
+    // value-dedup (a power user EXCLUDEs it, or the id columns, at will).
+    columns.push(("_content_hash", ColType::Varchar));
+
     let rows: Vec<Vec<Cell>> = ags
         .rows
         .iter()
         .map(|row| {
             let (id, parent) = keychain::row_ids(reg, &descriptor, row);
-            let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 2);
+            let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 3);
             cells.push(Cell::Str(id.to_string()));
             cells.push(parent.map_or(Cell::Null, |u| Cell::Str(u.to_string())));
             for (heading, ags_type, kind) in &plan {
                 let raw = row.get(heading).map(String::as_str);
                 cells.push(cell_for(raw, ags_type, *kind));
             }
+            // Trailing `_content_hash` — see the column note above. Built from the
+            // file's own UNIT + TYPE rows (per-file canonicalisation), exactly the
+            // (heading, unit, type, value) tuples `keychain::group_content_hashes`
+            // feeds on the other surfaces, so the digest is byte-identical.
+            let hash_cells: Vec<(&str, &str, &str, &str)> = ags
+                .headings
+                .iter()
+                .enumerate()
+                .map(|(i, h)| {
+                    (
+                        h.as_str(),
+                        ags.units.get(i).map(String::as_str).unwrap_or(""),
+                        ags.types.get(i).map(String::as_str).unwrap_or(""),
+                        row.get(h).map(String::as_str).unwrap_or(""),
+                    )
+                })
+                .collect();
+            cells.push(Cell::Str(
+                keychain::content_hash(group, &hash_cells).to_string(),
+            ));
             cells
         })
         .collect();
