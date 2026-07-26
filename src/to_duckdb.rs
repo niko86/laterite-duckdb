@@ -55,7 +55,9 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
             ];
             // Root groups have no registry parent → no `_parent_id` index.
             if reg.get(code).and_then(|d| d.parent.as_ref()).is_some() {
-                stmts.push(format!("CREATE INDEX ags_{lc}_parent_idx ON {tbl}(_parent_id);"));
+                stmts.push(format!(
+                    "CREATE INDEX ags_{lc}_parent_idx ON {tbl}(_parent_id);"
+                ));
             }
             for s in stmts {
                 let seq = rows.len() as i64;
@@ -63,7 +65,10 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
             }
         }
         let seq = rows.len() as i64;
-        rows.push(vec![Cell::Int(seq), Cell::Str("DETACH _lat_out;".to_string())]);
+        rows.push(vec![
+            Cell::Int(seq),
+            Cell::Str("DETACH _lat_out;".to_string()),
+        ]);
 
         Ok((columns, rows))
     })
