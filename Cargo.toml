@@ -62,19 +62,19 @@ serde_json = "1"
 # `read_ags` can decode non-UTF-8 bytes before the UTF-8-only core codec, and to
 # resolve a label to the `&'static Encoding` `CheckOptions.encoding` takes.
 encoding_rs = "0.8"
-# The official DuckDB Rust binding (duckdb-rs), pinned to the DuckDB 1.5.3 C-API
-# line (crate version 1.10503.1). `loadable-extension` builds the extension against
+# The official DuckDB Rust binding (duckdb-rs), pinned to the DuckDB 1.5.5 C-API
+# line (crate version 1.10505.0). `loadable-extension` builds the extension against
 # the C Extension API (the API struct is resolved at load, so the binary is
 # rebuilt per DuckDB release — community-extensions' build matrix does this).
 # `vtab` exposes the table-function machinery. Unlike quack-rs (MSRV 1.87), this
 # builds on rustc 1.86 = the community wasm image's toolchain, which unblocks wasm.
-duckdb = { version = "1.10503.1", features = ["loadable-extension", "vtab"] }
+duckdb = { version = "1.10505.0", features = ["loadable-extension", "vtab"] }
 # The raw DuckDB C API (the same version line duckdb-rs bundles). Needed directly
 # for the VFS calls duckdb-rs's safe surface doesn't expose:
 # duckdb_table_function_get_client_context → duckdb_client_context_get_file_system
 # → duckdb_file_system_open / duckdb_file_handle_{size,seek,read,close}. All raw
 # FFI is concentrated in src/ffi_table.rs + src/source.rs.
-libduckdb-sys = { version = "1.10503.1", features = ["loadable-extension"] }
+libduckdb-sys = { version = "1.10505.0", features = ["loadable-extension"] }
 
 [dev-dependencies]
 # In-process E2E host: LOAD the built .duckdb_extension into a bundled DuckDB.
@@ -82,7 +82,7 @@ libduckdb-sys = { version = "1.10503.1", features = ["loadable-extension"] }
 # NEVER on the shipped extension (that stays loadable, resolving the host's C API).
 # libduckdb-sys' loadable vs bundled builds can't share target/, so CI builds the
 # loadable artifact + freezes it, THEN runs the bundled-host e2e (one rebuild).
-duckdb = { version = "1.10503.1", features = ["bundled"] }
+duckdb = { version = "1.10505.0", features = ["bundled"] }
 
 # Release profile mirrors the community-extension build (small, fast cdylib).
 [profile.release]

@@ -109,7 +109,9 @@ fn build_table(
     group: &str,
 ) -> Result<(Vec<(&'static str, ColType)>, Vec<Vec<Cell>>), String> {
     let reg = registry();
-    let descriptor = reg.get(group).cloned().ok_or_else(|| {
+    // Validate the group is known (custom-group passthrough pending); the key
+    // minter below also needs a dictionary group to resolve KEY columns.
+    reg.get(group).ok_or_else(|| {
         format!(
             "group '{group}' is not in the AGS dictionary; passthrough (custom-group) support is pending"
         )
@@ -140,16 +142,26 @@ fn build_table(
     // value-dedup (a power user EXCLUDEs it, or the id columns, at will).
     columns.push(("_content_hash", ColType::Varchar));
 
+    // `_id`/`_parent_id` for every row up front, via the positional batch keychain
+    // (KEY columns resolved once per group) — the same path laterite's own reader
+    // uses. `ags.rows` is now keyed by shared `Arc<str>` heading names, so a column
+    // `c` is read by resolving it to its heading name.
+    let ids = keychain::group_row_ids(reg, group, &ags.headings, ags.rows.len(), |c, r| {
+        ags.rows[r]
+            .get(ags.headings[c].as_str())
+            .map(String::as_str)
+    });
+
     let rows: Vec<Vec<Cell>> = ags
         .rows
         .iter()
-        .map(|row| {
-            let (id, parent) = keychain::row_ids(reg, &descriptor, row);
+        .zip(&ids)
+        .map(|(row, (id, parent))| {
             let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 3);
-            cells.push(Cell::Str(id.to_string()));
-            cells.push(parent.map_or(Cell::Null, |u| Cell::Str(u.to_string())));
+            cells.push(Cell::Str(id.clone()));
+            cells.push(parent.as_ref().map_or(Cell::Null, |s| Cell::Str(s.clone())));
             for (heading, ags_type, kind) in &plan {
-                let raw = row.get(heading).map(String::as_str);
+                let raw = row.get(heading.as_str()).map(String::as_str);
                 cells.push(cell_for(raw, ags_type, *kind));
             }
             // Trailing `_content_hash` — see the column note above. Built from the
@@ -165,7 +177,7 @@ fn build_table(
                         h.as_str(),
                         ags.units.get(i).map(String::as_str).unwrap_or(""),
                         ags.types.get(i).map(String::as_str).unwrap_or(""),
-                        row.get(h).map(String::as_str).unwrap_or(""),
+                        row.get(h.as_str()).map(String::as_str).unwrap_or(""),
                     )
                 })
                 .collect();

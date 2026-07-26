@@ -192,3 +192,29 @@ query T
 SELECT stmt FROM load_ags('test/sql/mini.ags') WHERE seq = 0;
 ----
 CREATE TABLE ags_proj AS SELECT * FROM read_ags('test/sql/mini.ags', 'PROJ');
+
+# to_duckdb: load_ags's shape (8 stmts) wrapped to persist to a NAMED file — an
+# ATTACH bookend at seq 0 and a DETACH at the end → 10 statements. Tables are
+# created INTO the attached db (_lat_out.ags_<g>).
+query I
+SELECT count(*) FROM to_duckdb('test/sql/mini.ags', 'out.duckdb');
+----
+10
+
+# seq 0 ATTACHes the destination…
+query T
+SELECT stmt FROM to_duckdb('test/sql/mini.ags', 'out.duckdb') WHERE seq = 0;
+----
+ATTACH 'out.duckdb' AS _lat_out;
+
+# …the first CTAS (PROJ, file order) targets the attached db…
+query T
+SELECT stmt FROM to_duckdb('test/sql/mini.ags', 'out.duckdb') WHERE seq = 1;
+----
+CREATE TABLE _lat_out.ags_proj AS SELECT * FROM read_ags('test/sql/mini.ags', 'PROJ');
+
+# …and the final statement DETACHes it, flushing a standalone .duckdb.
+query T
+SELECT stmt FROM to_duckdb('test/sql/mini.ags', 'out.duckdb') WHERE seq = 9;
+----
+DETACH _lat_out;
