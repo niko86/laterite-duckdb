@@ -162,6 +162,7 @@ mod tests {
                 resolution: laterite_ags4_reference::dict::DictResolution::Fallback,
             },
             encoding: "UTF-8".into(),
+            custom_dict: None,
             errors: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
             warnings: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
             fyi: laterite_ags4_core::index::TierCoverage::Measured { count: 0 },
