@@ -59,6 +59,13 @@
       "named_params": [],
       "category": "persistence",
       "returns": "(seq, stmt) — CREATE-TABLE DDL to materialise every group into an indexed, repeat-/remote-queryable store."
+    },
+    {
+      "name": "to_duckdb",
+      "params": ["ags_path", "out_path"],
+      "named_params": [],
+      "category": "persistence",
+      "returns": "(seq, stmt) — ATTACH/CREATE-TABLE/DETACH DDL to persist every group as a standalone .duckdb at out_path (indexed, keyed by _id/_parent_id — the libraries' to_duckdb() output)."
     }
   ]
 }
