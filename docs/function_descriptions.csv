@@ -6,3 +6,4 @@ ags_headings,"The per-heading schema of an AGS4 file, enriched with dictionary K
 ags_dictionary,"The embedded standard AGS dictionary as a table","Returns (group, heading, status, ags_type, unit, description)","SELECT * FROM ags_dictionary() LIMIT 5;"
 ags_relationships,"The AGS group parent-child (KEY) graph that _parent_id follows","Returns (child, parent, shared_keys)","SELECT * FROM ags_relationships();"
 load_ags,"Emit CREATE-TABLE DDL to materialise every AGS4 group into an indexed, queryable store","Returns (seq, stmt) — run the statements to get keyed tables","SELECT stmt FROM load_ags('site.ags') ORDER BY seq;"
+to_duckdb,"Emit ATTACH/CREATE-TABLE/DETACH DDL to persist every AGS4 group as a standalone .duckdb file","Returns (seq, stmt); the file matches the libraries' to_duckdb() output — keyed by _id/_parent_id","SELECT stmt FROM to_duckdb('site.ags', 'site.duckdb') ORDER BY seq;"

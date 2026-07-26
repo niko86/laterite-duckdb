@@ -21,7 +21,8 @@
 //! ([`source`]): `read_ags` / `read_ags_text` (typed, UUID-keyed group tables via
 //! the shared typing authority [`typing`], with the `.ags.idx` cert fast-path
 //! [`cert`]), `ags_groups` / `ags_headings` ([`meta`]), `ags_dictionary` /
-//! `ags_relationships` / `ags_rules` ([`dict_fns`]), and `load_ags` ([`load`]).
+//! `ags_relationships` / `ags_rules` ([`dict_fns`]), `load_ags` ([`load`]), and
+//! `to_duckdb` ([`to_duckdb`]).
 
 use std::error::Error;
 use std::ffi::CString;
@@ -50,6 +51,8 @@ mod meta;
 mod read_ags;
 #[path = "source.rs"]
 mod source;
+#[path = "to_duckdb.rs"]
+mod to_duckdb;
 #[path = "typing.rs"]
 mod typing;
 
@@ -66,6 +69,7 @@ fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn Error>> {
     read_ags::register_text(con)?; // read_ags_text(content, group)
     dict_fns::register(con)?; // ags_dictionary([edition]), ags_relationships(), ags_rules()
     load::register(con)?; // load_ags(path)
+    to_duckdb::register(con)?; // to_duckdb(ags_path, out_path)
     Ok(())
 }
 
