@@ -69,7 +69,9 @@ fn manifest_version_matches_crate() {
     let raw = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("functions.json"))
         .expect("read functions.json");
     let manifest: serde_json::Value = serde_json::from_str(&raw).expect("parse functions.json");
-    let declared = manifest["version"].as_str().expect("manifest version string");
+    let declared = manifest["version"]
+        .as_str()
+        .expect("manifest version string");
     assert_eq!(
         declared,
         env!("CARGO_PKG_VERSION"),
