@@ -11,7 +11,7 @@
 # repo points them at the mirror submodule, as below.
 [package]
 name = "laterite-duckdb"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.85"      # duckdb-rs (1.10503.1) MSRV = 1.85.1; the community
                            # wasm image ships rustc 1.86, so no 1.87 pin.
