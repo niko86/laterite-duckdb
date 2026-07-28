@@ -63,6 +63,13 @@ BUMP_VERSION=1                                         # 1 = rewrite version in 
 PR_FORK="niko86/community-extensions"                  # the head fork (owner's)
 PR_BRANCH="laterite_ags4-${VERSION}"                   # DERIVED, fresh per version
 DESC_PATH="extensions/laterite_ags4/description.yml"
+# The community docs page is built from BOTH files, so BOTH must be synced. Only
+# description.yml was, and `docs/function_descriptions.csv` silently went stale:
+# `to_duckdb` shipped in 0.7.0 but never reached the published docs, because
+# nothing compared upstream's copy with this repo's. Same class of drift as the
+# functions.json version stamp — fixed the same way, by syncing the whole payload
+# instead of remembering to.
+DOCS_PATH="extensions/laterite_ags4/docs/function_descriptions.csv"
 FORK_DIR="$(dirname "$REPO_ROOT")/community-extensions-fork"  # sibling, OUTSIDE this repo
 WATCH_CI=1                                             # 1 = gh pr checks --watch at the end
 # ===========================================================================
@@ -152,10 +159,14 @@ git -C "$FORK_DIR" checkout -B "$PR_BRANCH" upstream/main
 # placeholder ref with the real release SHA.
 cp "$EXT_DIR/description.yml" "$FORK_DIR/$DESC_PATH"
 sed -i '' "s|REPLACE_WITH_RELEASE_COMMIT_SHA|$SHA|" "$FORK_DIR/$DESC_PATH"
-say "Descriptor for the PR:"
-git -C "$FORK_DIR" --no-pager diff --stat upstream/main -- "$DESC_PATH" || true
+# The function-description table the docs page renders. mkdir -p because a future
+# extension layout may add the docs/ dir for the first time.
+mkdir -p "$(dirname "$FORK_DIR/$DOCS_PATH")"
+cp "$EXT_DIR/docs/function_descriptions.csv" "$FORK_DIR/$DOCS_PATH"
+say "Descriptor + docs for the PR:"
+git -C "$FORK_DIR" --no-pager diff --stat upstream/main -- "$DESC_PATH" "$DOCS_PATH" || true
 if confirm "Commit + push '$PR_BRANCH' to $PR_FORK?"; then
-  git -C "$FORK_DIR" add "$DESC_PATH"
+  git -C "$FORK_DIR" add "$DESC_PATH" "$DOCS_PATH"
   git -C "$FORK_DIR" commit -m "laterite_ags4: bump to $VERSION"
   git -C "$FORK_DIR" push -f -u origin "$PR_BRANCH"
 fi

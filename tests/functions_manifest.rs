@@ -80,6 +80,47 @@ fn manifest_version_matches_crate() {
     );
 }
 
+/// Every registered function needs a row in the docs CSV. The community docs
+/// page renders that file, so a function absent from it ships undocumented —
+/// which is exactly what happened to `ags_rules` (registered, described in
+/// `description.yml`, but never given a CSV row) and to `to_duckdb` (present
+/// here, but never synced upstream, so the published table was a release
+/// behind). The sync half is fixed in `scripts/release.sh`; this is the half a
+/// test can hold.
+#[test]
+fn docs_csv_covers_every_registered_function() {
+    let raw = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("functions.json"))
+        .expect("read functions.json");
+    let manifest: serde_json::Value = serde_json::from_str(&raw).expect("parse functions.json");
+
+    let csv = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/function_descriptions.csv"),
+    )
+    .expect("read docs/function_descriptions.csv");
+    // The first field of each row is the function name; quoting only ever starts
+    // from the second field, so splitting on the first comma is sufficient here.
+    let documented: Vec<&str> = csv
+        .lines()
+        .skip(1) // header
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.split(',').next().unwrap_or("").trim())
+        .collect();
+
+    let mut missing: Vec<&str> = manifest["functions"]
+        .as_array()
+        .expect("functions array")
+        .iter()
+        .map(|f| f["name"].as_str().expect("name"))
+        .filter(|n| !documented.contains(n))
+        .collect();
+    missing.sort_unstable();
+    assert!(
+        missing.is_empty(),
+        "registered but absent from docs/function_descriptions.csv: {missing:?} \
+         — add a row, or the community docs page ships without them"
+    );
+}
+
 #[test]
 fn manifest_matches_registered_functions() {
     let raw = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("functions.json"))
