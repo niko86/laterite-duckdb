@@ -96,11 +96,18 @@ say "cargo test (pre-flight)"
 
 # --- 3. version bump --------------------------------------------------------
 if [[ "$BUMP_VERSION" == 1 ]]; then
-  say "Setting version = $VERSION  (Cargo.toml + description.yml)"
+  # functions.json carries the version too: downstream consumers (the docs repo)
+  # pin a copy of that manifest, so a bump that moved only Cargo.toml +
+  # description.yml shipped a manifest still claiming the PREVIOUS version.
+  # `manifest_version_matches_crate` (tests/functions_manifest.rs) gates all
+  # three staying in step.
+  say "Setting version = $VERSION  (Cargo.toml + description.yml + functions.json)"
   sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" "$EXT_DIR/Cargo.toml"
   sed -i '' "s/^  version: .*/  version: $VERSION/"        "$EXT_DIR/description.yml"
-  grep -nE '^version = '  "$EXT_DIR/Cargo.toml"
-  grep -nE '^  version:'  "$EXT_DIR/description.yml"
+  sed -i '' "s/^  \"version\": \".*\",/  \"version\": \"$VERSION\",/" "$EXT_DIR/functions.json"
+  grep -nE '^version = '     "$EXT_DIR/Cargo.toml"
+  grep -nE '^  version:'     "$EXT_DIR/description.yml"
+  grep -nE '^  "version": '  "$EXT_DIR/functions.json"
 fi
 
 # --- 4. review + commit -----------------------------------------------------
