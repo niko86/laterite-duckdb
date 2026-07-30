@@ -745,11 +745,11 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
- "laterite-types",
+ "laterite-ags4-types",
  "serde",
  "serde_json",
  "sha2",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-parse"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "encoding_rs",
  "memchr",
@@ -767,11 +767,11 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-reference"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
- "laterite-types",
+ "laterite-ags4-types",
  "phf",
  "phf_codegen",
  "serde",
@@ -781,23 +781,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "laterite-ags4-types"
+version = "0.9.0"
+dependencies = [
+ "chrono",
+ "serde_json",
+]
+
+[[package]]
 name = "laterite-duckdb"
-version = "0.7.0"
+version = "0.9.0"
 dependencies = [
  "duckdb",
  "encoding_rs",
  "laterite-ags4-core",
  "laterite-ags4-reference",
- "laterite-types",
+ "laterite-ags4-types",
  "libduckdb-sys",
- "serde_json",
-]
-
-[[package]]
-name = "laterite-types"
-version = "0.8.0"
-dependencies = [
- "chrono",
  "serde_json",
 ]
 

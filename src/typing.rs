@@ -1,7 +1,7 @@
 //! AGS type code → DuckDB output column type + typed cell — the one typing
 //! authority the read functions share.
 //!
-//! Every cell is routed through `laterite_types::parse_value` — the single
+//! Every cell is routed through `laterite_ags4_types::parse_value` — the single
 //! typing authority already shared by `laterite.read`, the wasm explorer, and
 //! the `.ags5db` writer — so `read_ags` types a column identically to those
 //! hosts *by construction*, not by re-implementation.
@@ -13,7 +13,7 @@
 //! canonical-string → epoch-unit conversion is deferred so the flagship
 //! (born-typed numerics) stays unambiguous.
 
-use laterite_types::{CanonicalType, canonical_type, parse_value};
+use laterite_ags4_types::{CanonicalType, canonical_type, parse_value};
 
 use super::ffi_table::{Cell, ColType};
 

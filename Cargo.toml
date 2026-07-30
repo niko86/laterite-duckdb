@@ -11,7 +11,7 @@
 # repo points them at the mirror submodule, as below.
 [package]
 name = "laterite-duckdb"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.85"      # duckdb-rs (1.10503.1) MSRV = 1.85.1; the community
                            # wasm image ships rustc 1.86, so no 1.87 pin.
@@ -50,7 +50,7 @@ path = "src/wasm_lib.rs"
 # Carrying it bloated the binary and broke the community-extensions mingw build
 # (zstd-sys C symbols failed to link) and the wasm build (age→getrandom).
 laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core", default-features = false }
-laterite-types = { path = "laterite/rust-packages/laterite-types" }
+laterite-ags4-types = { path = "laterite/rust-packages/laterite-ags4-types" }
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
