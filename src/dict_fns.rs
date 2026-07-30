@@ -14,7 +14,7 @@ use laterite_ags4_core::keychain::shared_keys;
 use laterite_ags4_core::registry::registry;
 use laterite_ags4_reference::catalogue::rule_metadata_json;
 use laterite_ags4_reference::dict::Dictionary;
-use laterite_types::sql_type;
+use laterite_ags4_types::sql_type;
 use libduckdb_sys as ffi;
 
 use super::ffi_table::{Bind, Cell, ColType, register_table};

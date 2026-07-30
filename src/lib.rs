@@ -9,7 +9,7 @@
 //! Built on the **C Extension API** via the official `duckdb` crate (duckdb-rs,
 //! DuckDB 1.5.3 C-API line; zero C++). It reuses the pure Rust engine wholesale:
 //! `laterite-ags4-core`'s AGS4 codec + deterministic-key `keychain` and
-//! `laterite-types`' single typing authority.
+//! `laterite-ags4-types`' single typing authority.
 //!
 //! A **read-only SQL surface** over AGS4 — validation and certification live in
 //! the `lat` CLI / the `laterite` library, not here.
