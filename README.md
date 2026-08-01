@@ -265,9 +265,9 @@ strings, never parsed numbers, which keeps it stable across files and dictionary
 
 ## Build from source
 
-The four `laterite-*` library crates come from the
-[`laterite`](https://github.com/niko86/laterite) mirror as a git submodule (not
-crates.io); `extension-ci-tools` is a submodule too.
+The `laterite-*` library crates come from
+[crates.io](https://crates.io/crates/laterite-ags4-core); `extension-ci-tools` is a
+submodule, so the clone is still recursive.
 
 ```sh
 git clone --recursive https://github.com/niko86/laterite-duckdb

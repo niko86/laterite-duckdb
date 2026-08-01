@@ -1,14 +1,19 @@
 # laterite_ags4 — DuckDB community extension (dedicated repo: niko86/laterite-duckdb).
 #
 # This crate IS the extension (extension-ci-tools requires the Cargo.toml at the
-# repo root). Its library dependencies are NOT vendored or pulled from crates.io
-# — they come from the `laterite` public mirror checked out as a git submodule at
-# `laterite/`, path-dep'd below. community-extensions clones this repo with
-# `submodules: recursive`, so the submodule (and its crates) are present at build.
+# repo root). Its library dependencies come from **crates.io**, as of the engine
+# tier's first publish (laterite 0.9.0).
 #
-# Build proven locally with these path-deps pointed at the live monorepo (a
-# standalone crate outside the workspace built a 5.9 MB loadable cdylib); the real
-# repo points them at the mirror submodule, as below.
+# They used to come from the `laterite` public mirror carried as a git submodule at
+# `laterite/` and path-dep'd. That was the only option before the engine crates were
+# published, and it cost more than a checkout: the submodule is a cargo WORKSPACE, so
+# repo-wide commands here reached into code this repo does not own (hence
+# `cargo fmt -p laterite-duckdb` rather than `--all`), and the pinned commit had to be
+# moved by hand for every laterite release with nothing to check it against. A version
+# requirement states the same intent in one line and cargo resolves it.
+#
+# community-extensions still clones with `submodules: recursive` for
+# `extension-ci-tools`; the laterite submodule is gone.
 [package]
 name = "laterite-duckdb"
 version = "0.9.0"
@@ -43,19 +48,24 @@ crate-type = ["staticlib"]
 path = "src/wasm_lib.rs"
 
 [dependencies]
-# The library crates, from the mirror submodule (laterite/ → niko86/laterite
-# pinned to a release tag). laterite-ags4-emit comes transitively via laterite-ags4-core.
+# The library crates, from crates.io.
+#
 # default-features = false drops core's default `transport` feature: this is a
 # READ-ONLY reader, so it needs none of laterite-transport's zstd + age crypto.
 # Carrying it bloated the binary and broke the community-extensions mingw build
 # (zstd-sys C symbols failed to link) and the wasm build (age→getrandom).
-laterite-ags4-core = { path = "laterite/rust-packages/laterite-ags4-core", default-features = false }
-laterite-ags4-types = { path = "laterite/rust-packages/laterite-ags4-types" }
+#
+# The engine tier moves in lockstep, so all three carry the same requirement. It is
+# a caret: the engine promises no breaking change within a minor, and pinning `=`
+# would refuse a patched engine — the one upgrade this extension should always take,
+# since a fix there is a fix to what the reader returns.
+laterite-ags4-core = { version = "0.9.0", default-features = false }
+laterite-ags4-types = "0.9.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
-laterite-ags4-reference = { path = "laterite/rust-packages/laterite-ags4-reference" }
+laterite-ags4-reference = "0.9.0"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
