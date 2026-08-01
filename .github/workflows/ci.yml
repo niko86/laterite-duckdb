@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # The `laterite` submodule pins the public mirror (niko86/laterite) for the
-      # library crates the extension path-deps — public, so no token needed.
+      # `extension-ci-tools` is the only submodule now — the laterite library crates
+      # come from crates.io. Still recursive: the make targets below need it.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           submodules: recursive
@@ -43,11 +43,11 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      # Cheap fail-fast before any build. Scope to THIS package — `--all` reaches
-      # into the vendored `laterite/` submodule (a path-dep workspace) and would
-      # fmt-check code we don't own.
+      # Cheap fail-fast before any build. `--all` is safe now that the laterite
+      # crates come from crates.io: it used to reach into the vendored `laterite/`
+      # submodule (a path-dep workspace) and fmt-check code this repo does not own.
       - name: cargo fmt --check
-        run: cargo fmt -p laterite-duckdb -- --check
+        run: cargo fmt --all -- --check
 
       # The manifest version and the community descriptor version must agree — a
       # drift ships a mislabelled extension. (The number itself tracks the

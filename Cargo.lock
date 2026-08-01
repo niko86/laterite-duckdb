@@ -746,6 +746,8 @@ dependencies = [
 [[package]]
 name = "laterite-ags4-core"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e63913ff4be2736641645bc0d085f0c0d1f75c56c278e67f1d095e5c3dff693b"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
@@ -760,6 +762,8 @@ dependencies = [
 [[package]]
 name = "laterite-ags4-parse"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a29bf021fd9ec9f2c4f727389b217b5f8b816a9b8ab4bd5ebd031a1cf974d944"
 dependencies = [
  "encoding_rs",
  "memchr",
@@ -768,6 +772,8 @@ dependencies = [
 [[package]]
 name = "laterite-ags4-reference"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "339dd2365ff6a73486b19a7cfbd53917e8d7758eac0f02c3b36469e02fd3369b"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
@@ -783,6 +789,8 @@ dependencies = [
 [[package]]
 name = "laterite-ags4-types"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4665f6d039bb53b4b4b64054c83da76e5c43d10d9e97f24fa3a0ed22dc375194"
 dependencies = [
  "chrono",
  "serde_json",
