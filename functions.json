@@ -1,6 +1,6 @@
 {
   "extension": "laterite_ags4",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "read_only": true,
   "_source": "Canonical manifest of the SQL table functions this extension registers. Gated against the register_table() calls in src/*.rs by tests/functions_manifest.rs, so it cannot drift from the actual surface. Consumers pin a copy of this file (e.g. the docs repo) rather than hand-listing the functions.",
   "functions": [
