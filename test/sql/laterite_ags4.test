@@ -306,3 +306,33 @@ statement error
 SELECT * FROM read_ags_text(E'"GROUP","ZZZZ"\r\n"HEADING","ZZZZ_ID"\r\n"UNIT",""\r\n"TYPE","ID"\r\n"DATA","1"\r\n', 'ZZZZ');
 ----
 the file's own DICT group does not declare it
+
+# ---- ags_groups / ags_headings honour the file's DICT declarations ----
+# The refusal fix bound XMON; these two used to keep reading the registry
+# alone, reporting the declared parent as NULL and the declared KEY headings
+# as OTHER — the same wrong-source premise, one surface over.
+
+# The declared parent (DICT_PGRP) — not NULL.
+query T
+SELECT parent FROM ags_groups('test/sql/custom.ags') WHERE "group" = 'XMON';
+----
+PROJ
+
+# The declared statuses (DICT_STAT): the KEY tuple is PROJ_ID + XMON_ID —
+# the same source the validator builds its Rule 10a tuple from.
+query TTI
+SELECT heading, status, is_key::INTEGER
+FROM ags_headings('test/sql/custom.ags')
+WHERE "group" = 'XMON' ORDER BY ordinal;
+----
+PROJ_ID	KEY	1
+XMON_ID	KEY	1
+XMON_DPTH	OTHER	0
+XMON_DESC	OTHER	0
+
+# Registry-first precedence untouched: a standard group's statuses still come
+# from the registry (PROJ has exactly its one spec KEY heading).
+query I
+SELECT count(*) FROM ags_headings('test/sql/mini.ags') WHERE is_key AND "group" = 'PROJ';
+----
+1
