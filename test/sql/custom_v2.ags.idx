@@ -1,0 +1,87 @@
+{
+ "version": 2,
+ "file": {
+  "size": 1885,
+  "sha256": "fe26617df1f9d8bb6cf66450bdb08bb9f9a5807d434f88ddc43c8ef6919773ac",
+  "etag": null,
+  "last_modified": null
+ },
+ "validation": {
+  "validator": "laterite_ags4",
+  "engine": "ee6a532ea802ac69",
+  "compat": null,
+  "checked_at": "2026-08-30T15:12:50.899774+00:00",
+  "edition": {
+   "mode": "auto",
+   "resolved": "4.2",
+   "resolution": "exact"
+  },
+  "encoding": "UTF-8",
+  "custom_dict": null,
+  "errors": {
+   "state": "measured",
+   "count": 0
+  },
+  "warnings": {
+   "state": "measured",
+   "count": 0
+  },
+  "fyi": {
+   "state": "measured",
+   "count": 2
+  }
+ },
+ "groups": {
+  "PROJ": [
+   [
+    0,
+    118
+   ]
+  ],
+  "TRAN": [
+   [
+    118,
+    410
+   ]
+  ],
+  "DICT": [
+   [
+    1131,
+    1689
+   ]
+  ],
+  "TYPE": [
+   [
+    551,
+    851
+   ]
+  ],
+  "ABBR": [
+   [
+    851,
+    1131
+   ]
+  ],
+  "XMON": [
+   [
+    1689,
+    1885
+   ]
+  ],
+  "UNIT": [
+   [
+    410,
+    551
+   ]
+  ]
+ },
+ "order": [
+  "PROJ",
+  "TRAN",
+  "UNIT",
+  "TYPE",
+  "ABBR",
+  "DICT",
+  "XMON"
+ ]
+}

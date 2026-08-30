@@ -2,10 +2,11 @@
 //! a typed, UUID-keyed table on the [`crate::ffi_table`] harness.
 //!
 //! The producer runs once at bind: it reads (or slices) + parses the file,
-//! resolves the group's registry descriptor, and materialises the typed schema
-//! — `_id`, `_parent_id`, then one column per heading typed from the file's own
-//! TYPE row (AGS4 is self-describing) — with each row's deterministic
-//! `keychain` ids. The harness then streams those rows a vector-chunk at a time.
+//! admits the group under the Rule 18 effective dictionary (standard ∪ the
+//! file's own `DICT` group), and materialises the typed schema — `_id`,
+//! `_parent_id`, then one column per heading typed from the file's own TYPE
+//! row (AGS4 is self-describing) — with each row's deterministic `keychain`
+//! ids. The harness then streams those rows a vector-chunk at a time.
 //!
 //! - `read_ags(path, group [, encoding := …])` reads through DuckDB's virtual
 //!   filesystem (see [`super::source`]), so `path` may be local, `http(s)://`,
@@ -14,13 +15,17 @@
 //! - `read_ags_text(content, group)` takes the AGS4 text inline as a VARCHAR
 //!   (already-decoded UTF-8) — no VFS, no `encoding` param.
 //!
-//! A group outside the AGS dictionary (passthrough/custom) returns a clear bind
-//! error for now.
+//! A group only the file's own `DICT` declares binds like any other — columns
+//! typed from its TYPE row — but **unkeyed**: the engine mints content-addressed
+//! ids from spec KEY headings only, so `_id`/`_parent_id` are NULL (the same
+//! unkeyed batch the wheel builds for that group). A group declared by neither
+//! side of the effective dictionary is refused at bind.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4, read_ags4_bytes};
+use laterite_ags4_core::effective_dict::file_dict_of;
 use laterite_ags4_core::keychain;
 use laterite_ags4_core::registry::registry;
 use libduckdb_sys as ffi;
@@ -28,6 +33,20 @@ use libduckdb_sys as ffi;
 use super::ffi_table::{Bind, Cell, ColType, register_table};
 use super::source::{Vfs, read_parsed_with_encoding};
 use super::typing::{Emit, cell_for};
+
+/// How an admitted group binds. Decided by whichever side of the Rule 18
+/// effective dictionary admitted it — the caller ([`binding_for`] on the
+/// whole-file paths, [`super::cert::sliced_group`] on the cert fast-path —
+/// both answer the file half through core's `effective_dict`, so they agree
+/// by construction).
+pub enum Binding {
+    /// A standard-dictionary group: `_id`/`_parent_id` minted from its spec
+    /// KEY headings via the shared `keychain`.
+    Keyed,
+    /// A group only the file's own `DICT` declares: no spec keys exist, so
+    /// `_id`/`_parent_id` are NULL — the engine's documented unkeyed batch.
+    Unkeyed,
+}
 
 /// The harness declares column names as `&'static str`, but AGS heading names
 /// are dynamic (read from the file's HEADING row). Distinct heading names are
@@ -66,13 +85,14 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
         // whole-file decode path (the cert is a same-file optimisation, not a
         // correctness requirement).
         if encoding == encoding_rs::UTF_8 {
-            if let Some(ags) = super::cert::sliced_group(&vfs, &path, &group) {
-                return build_table(&ags, &group);
+            if let Some((ags, binding)) = super::cert::sliced_group(&vfs, &path, &group) {
+                return build_table(&ags, &group, &binding);
             }
         }
         let parsed = read_parsed_with_encoding(&vfs, &path, encoding)?;
         let ags = resolve_group(&parsed, &group)?;
-        build_table(ags, &group)
+        let binding = binding_for(&parsed, &group)?;
+        build_table(ags, &group, &binding)
     })
 }
 
@@ -85,8 +105,28 @@ pub fn register_text(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::err
         let parsed = read_ags4_bytes(content.as_bytes())
             .map_err(|e| format!("read_ags_text: input did not parse as AGS4 ({e})"))?;
         let ags = resolve_group(&parsed, &group)?;
-        build_table(ags, &group)
+        let binding = binding_for(&parsed, &group)?;
+        build_table(ags, &group, &binding)
     })
+}
+
+/// Admit `group` under the Rule 18 effective dictionary and say how it binds.
+/// The file half is read through core's `effective_dict` — the same module the
+/// certificate's `defines` field is measured with, so the whole-file and cert
+/// paths agree on what "declared" means by construction. A group declared by
+/// neither side is refused: binding it anyway would silently paper over
+/// exactly what Rule 18 exists to catch.
+fn binding_for(parsed: &ParsedAgs4, group: &str) -> Result<Binding, String> {
+    if registry().get(group).is_some() {
+        return Ok(Binding::Keyed);
+    }
+    if file_dict_of(parsed).groups().contains(group) {
+        return Ok(Binding::Unkeyed);
+    }
+    Err(format!(
+        "group '{group}' is not in the AGS dictionary and the file's own DICT group does not \
+         declare it (Rule 18); a custom group is readable once the file declares it"
+    ))
 }
 
 /// Resolve one group out of a parsed file, with a helpful error listing what's
@@ -100,23 +140,17 @@ fn resolve_group<'a>(parsed: &'a ParsedAgs4, group: &str) -> Result<&'a AgsGroup
     })
 }
 
-/// Build the typed, keyed `(columns, rows)` for one resolved group: `_id`,
-/// `_parent_id`, then one column per heading typed from the file's own TYPE row,
-/// with each row's deterministic `keychain` ids precomputed (one SHA-256 each).
+/// Build the typed `(columns, rows)` for one admitted group: `_id`,
+/// `_parent_id`, then one column per heading typed from the file's own TYPE row.
+/// A [`Binding::Keyed`] group gets each row's deterministic `keychain` ids
+/// precomputed (one SHA-256 each); a [`Binding::Unkeyed`] one keeps the id
+/// columns — the schema is the same for every group — as NULLs.
 #[allow(clippy::type_complexity)]
 fn build_table(
     ags: &AgsGroup,
     group: &str,
+    binding: &Binding,
 ) -> Result<(Vec<(&'static str, ColType)>, Vec<Vec<Cell>>), String> {
-    let reg = registry();
-    // Validate the group is known (custom-group passthrough pending); the key
-    // minter below also needs a dictionary group to resolve KEY columns.
-    reg.get(group).ok_or_else(|| {
-        format!(
-            "group '{group}' is not in the AGS dictionary; passthrough (custom-group) support is pending"
-        )
-    })?;
-
     // Schema: the deterministic identity keys first, then one column per heading
     // typed from the file's own TYPE row, then a trailing `_content_hash`.
     let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings.len() + 3);
@@ -145,21 +179,41 @@ fn build_table(
     // `_id`/`_parent_id` for every row up front, via the positional batch keychain
     // (KEY columns resolved once per group) — the same path laterite's own reader
     // uses. `ags.rows` is now keyed by shared `Arc<str>` heading names, so a column
-    // `c` is read by resolving it to its heading name.
-    let ids = keychain::group_row_ids(reg, group, &ags.headings, ags.rows.len(), |c, r| {
-        ags.rows[r]
-            .get(ags.headings[c].as_str())
-            .map(String::as_str)
-    });
+    // `c` is read by resolving it to its heading name. An unkeyed (file-declared)
+    // group skips the minting: `group_row_ids` has no spec KEY headings to
+    // resolve for it, and its documented answer — an empty vec — must become
+    // per-row NULLs here, never zero rows.
+    let ids: Option<Vec<(String, Option<String>)>> = match binding {
+        Binding::Keyed => Some(keychain::group_row_ids(
+            registry(),
+            group,
+            &ags.headings,
+            ags.rows.len(),
+            |c, r| {
+                ags.rows[r]
+                    .get(ags.headings[c].as_str())
+                    .map(String::as_str)
+            },
+        )),
+        Binding::Unkeyed => None,
+    };
 
     let rows: Vec<Vec<Cell>> = ags
         .rows
         .iter()
-        .zip(&ids)
-        .map(|(row, (id, parent))| {
+        .enumerate()
+        .map(|(r, row)| {
             let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 3);
-            cells.push(Cell::Str(id.clone()));
-            cells.push(parent.as_ref().map_or(Cell::Null, |s| Cell::Str(s.clone())));
+            match ids.as_ref().map(|v| &v[r]) {
+                Some((id, parent)) => {
+                    cells.push(Cell::Str(id.clone()));
+                    cells.push(parent.as_ref().map_or(Cell::Null, |s| Cell::Str(s.clone())));
+                }
+                None => {
+                    cells.push(Cell::Null);
+                    cells.push(Cell::Null);
+                }
+            }
             for (heading, ags_type, kind) in &plan {
                 let raw = row.get(heading.as_str()).map(String::as_str);
                 cells.push(cell_for(raw, ags_type, *kind));

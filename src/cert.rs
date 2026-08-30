@@ -21,11 +21,16 @@
 //! size-based; the format's `etag`/`last_modified` fields serve a future
 //! header-capable consumer.
 
-use laterite_ags4_core::ags4_codec::AgsGroup;
+use std::collections::HashMap;
+
+use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4};
+use laterite_ags4_core::effective_dict::file_dict_of;
 use laterite_ags4_core::index::{Sidecar, parse_group_slice};
+use laterite_ags4_core::registry::registry;
 use laterite_ags4_reference::dict::DictVersion;
 
-use super::source::Vfs;
+use super::read_ags::Binding;
+use super::source::{FileHandle, Vfs};
 
 /// The sibling certificate path for a source `path` (`site.ags` → `site.ags.idx`).
 pub fn idx_path_for(path: &str) -> String {
@@ -58,12 +63,6 @@ fn load_sidecar(vfs: &Vfs, path: &str) -> Option<Sidecar> {
     Sidecar::from_json(&json).ok()
 }
 
-/// **Read fast-path.** If a *size-fresh* cert indexes `group`, range-read just that
-/// group's bytes (one `seek` + `read`, local or remote) and parse the slice —
-/// O(group) instead of O(file). Returns `None` (→ whole-file parse) on any miss:
-/// no cert, a size change, a group the cert doesn't index (passthrough/absent), or
-/// a slice that won't parse (a same-size *shifted* file — the whole-file path then
-/// parses the changed bytes correctly).
 /// The one span we may slice for `group`, or `None` if a sliced read cannot be trusted.
 ///
 /// A GROUP may legally appear more than once in an AGS4 file, and the certificate records
@@ -89,14 +88,15 @@ fn sliceable_span(sidecar: &Sidecar, group: &str) -> Option<(u64, u64)> {
     }
 }
 
-pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<AgsGroup> {
-    let sidecar = load_sidecar(vfs, path)?;
-    let (handle, size) = vfs.open_for_read(path).ok()?;
-    // read = READ: a size match is the (cheap) freshness gate — no re-hash.
-    if !sidecar.size_matches(size) {
-        return None;
-    }
-    let (start, end) = sliceable_span(&sidecar, group)?;
+/// Range-read one group's span off an already-open handle and parse it as
+/// `group`. `None` on any IO short-fall or a slice that won't parse (a
+/// same-size *shifted* file) — the caller falls back to the whole-file read.
+fn read_group_span(
+    handle: &FileHandle,
+    size: u64,
+    (start, end): (u64, u64),
+    group: &str,
+) -> Option<AgsGroup> {
     if end < start || end > size {
         return None; // a cert inconsistent with the live size → fall back
     }
@@ -114,6 +114,73 @@ pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<AgsGroup> {
     // The slice begins at the group's `"GROUP",…` record, so within `buf` its own
     // range is the whole buffer.
     parse_group_slice(&buf, (0, buf.len() as u64), group).ok()
+}
+
+/// The cert's answer to "does the file's own `DICT` group declare `group`?" —
+/// the Rule 18 admit question for a group the standard dictionary doesn't know.
+///
+/// - `Some(yes/no)` when the cert can answer: the `defines` field where the
+///   minting engine measured it (no extra read at all), else one ranged read
+///   of a single-span `DICT` through `fetch`, funneled through the same
+///   [`file_dict_of`] the minting engine derives `defines` with — so the two
+///   routes agree on what "declares" means by construction.
+/// - `None` when it cannot: a pre-`defines` cert whose `DICT` is redeclared
+///   (not contiguous, so not sliceable). The caller falls back to the
+///   whole-file parse, which sees every span.
+///
+/// A cert with no `DICT` span at all answers `Some(false)` confidently: the
+/// index records every group section, so an absent `DICT` means the file
+/// declares nothing.
+fn file_declares(
+    sidecar: &Sidecar,
+    group: &str,
+    fetch: impl FnOnce((u64, u64)) -> Option<AgsGroup>,
+) -> Option<bool> {
+    if let Some(defines) = &sidecar.defines {
+        return Some(defines.iter().any(|g| g == group));
+    }
+    if !sidecar.groups.contains_key("DICT") {
+        return Some(false);
+    }
+    let dict = fetch(sliceable_span(sidecar, "DICT")?)?;
+    let parsed = ParsedAgs4 {
+        groups: HashMap::from([("DICT".to_string(), dict)]),
+        order: vec!["DICT".to_string()],
+    };
+    Some(file_dict_of(&parsed).groups().contains(group))
+}
+
+/// **Read fast-path.** If a *size-fresh* cert indexes `group`, range-read just
+/// that group's bytes (one `seek` + `read`, local or remote) and parse the
+/// slice — O(group) instead of O(file) — plus how the group binds: keyed for a
+/// standard-dictionary group, unkeyed for one only the file's own `DICT`
+/// declares (admitted via [`file_declares`], at most one extra small ranged
+/// read). Returns `None` (→ whole-file parse) on any miss: no cert, a size
+/// change, a group the cert doesn't index, a slice that won't parse, or an
+/// admit question this cert cannot answer. A group the cert says is declared
+/// NOWHERE also falls back rather than erroring here — the whole-file path
+/// reaches the same conclusion from the live bytes and owns the one refusal
+/// message.
+pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<(AgsGroup, Binding)> {
+    let sidecar = load_sidecar(vfs, path)?;
+    let (handle, size) = vfs.open_for_read(path).ok()?;
+    // read = READ: a size match is the (cheap) freshness gate — no re-hash.
+    if !sidecar.size_matches(size) {
+        return None;
+    }
+    // Admit before slicing, so a group this file cannot bind costs no group
+    // read. Standard groups skip the DICT question entirely.
+    let binding = if registry().get(group).is_some() {
+        Binding::Keyed
+    } else if file_declares(&sidecar, group, |span| {
+        read_group_span(&handle, size, span, "DICT")
+    })? {
+        Binding::Unkeyed
+    } else {
+        return None;
+    };
+    let ags = read_group_span(&handle, size, sliceable_span(&sidecar, group)?, group)?;
+    Some((ags, binding))
 }
 
 #[cfg(test)]
@@ -207,5 +274,105 @@ mod tests {
     fn an_absent_group_refuses_the_sliced_read() {
         let sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
         assert_eq!(sliceable_span(&sidecar, "SAMP"), None);
+    }
+
+    /// A file whose own DICT declares a bespoke group (`XMON` under `PROJ`).
+    const WITH_DICT: &str = concat!(
+        "\"GROUP\",\"PROJ\"\r\n",
+        "\"HEADING\",\"PROJ_ID\"\r\n",
+        "\"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n",
+        "\"DATA\",\"P1\"\r\n\r\n",
+        "\"GROUP\",\"DICT\"\r\n",
+        "\"HEADING\",\"DICT_TYPE\",\"DICT_GRP\",\"DICT_HDNG\",\"DICT_STAT\",\"DICT_DTYP\",\"DICT_UNIT\",\"DICT_PGRP\"\r\n",
+        "\"UNIT\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"\r\n",
+        "\"TYPE\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\"\r\n",
+        "\"DATA\",\"GROUP\",\"XMON\",\"\",\"\",\"\",\"\",\"PROJ\"\r\n",
+        "\"DATA\",\"HEADING\",\"XMON\",\"XMON_ID\",\"KEY\",\"ID\",\"\",\"\"\r\n\r\n",
+        "\"GROUP\",\"XMON\"\r\n",
+        "\"HEADING\",\"PROJ_ID\",\"XMON_ID\"\r\n",
+        "\"UNIT\",\"\",\"\"\r\n\"TYPE\",\"ID\",\"ID\"\r\n",
+        "\"DATA\",\"P1\",\"M1\"\r\n",
+    );
+
+    /// The in-memory stand-in for the ranged read `sliced_group` hands
+    /// [`file_declares`] — same slice-then-parse, no VFS.
+    fn fetch_from(bytes: &'static [u8]) -> impl FnOnce((u64, u64)) -> Option<AgsGroup> {
+        move |(start, end)| {
+            let slice = &bytes[start as usize..end as usize];
+            parse_group_slice(slice, (0, slice.len() as u64), "DICT").ok()
+        }
+    }
+
+    /// A cert whose minting engine measured `defines` answers the admit
+    /// question from the field alone — the fetch must never run, because on a
+    /// remote object it is a ranged GET.
+    #[test]
+    fn defines_answers_without_any_fetch() {
+        let sidecar = Sidecar::assemble(WITH_DICT.as_bytes(), stamp()).expect("assembles");
+        assert_eq!(
+            sidecar.defines.as_deref(),
+            Some(&["XMON".to_string()][..]),
+            "0.13 assemble measures the file-declared set"
+        );
+        let no_fetch = |_span| panic!("defines answered — no DICT read may happen");
+        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), Some(true));
+        assert_eq!(file_declares(&sidecar, "ZZZZ", no_fetch), Some(false));
+    }
+
+    /// A pre-`defines` cert (the field absent) answers by one ranged read of
+    /// its single-span DICT — through the same `file_dict_of` the minting
+    /// engine measures `defines` with.
+    #[test]
+    fn a_pre_defines_cert_slices_dict_to_answer() {
+        let mut sidecar = Sidecar::assemble(WITH_DICT.as_bytes(), stamp()).expect("assembles");
+        sidecar.defines = None; // an older cert: unmeasured, not measured-empty
+        let bytes = WITH_DICT.as_bytes();
+        assert_eq!(
+            file_declares(&sidecar, "XMON", fetch_from(bytes)),
+            Some(true)
+        );
+        assert_eq!(
+            file_declares(&sidecar, "ZZZZ", fetch_from(bytes)),
+            Some(false)
+        );
+    }
+
+    /// No DICT section in the index at all is a confident no: the index
+    /// records every group section, so nothing is declared.
+    #[test]
+    fn no_dict_at_all_is_a_confident_no() {
+        let mut sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
+        sidecar.defines = None;
+        let no_fetch = |_span| panic!("no DICT span exists — nothing to fetch");
+        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), Some(false));
+    }
+
+    /// A pre-`defines` cert whose DICT is REDECLARED cannot answer by slicing
+    /// (the section is not contiguous) — `None` sends the caller to the
+    /// whole-file parse, which sees every span.
+    #[test]
+    fn a_redeclared_dict_in_an_old_cert_cannot_answer() {
+        let split_dict: String = concat!(
+            "\"GROUP\",\"DICT\"\r\n",
+            "\"HEADING\",\"DICT_TYPE\",\"DICT_GRP\",\"DICT_HDNG\",\"DICT_STAT\",\"DICT_DTYP\",\"DICT_UNIT\",\"DICT_PGRP\"\r\n",
+            "\"UNIT\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"\r\n",
+            "\"TYPE\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\"\r\n",
+            "\"DATA\",\"GROUP\",\"XMON\",\"\",\"\",\"\",\"\",\"PROJ\"\r\n\r\n",
+            "\"GROUP\",\"PROJ\"\r\n",
+            "\"HEADING\",\"PROJ_ID\"\r\n",
+            "\"UNIT\",\"\"\r\n\"TYPE\",\"ID\"\r\n",
+            "\"DATA\",\"P1\"\r\n\r\n",
+            "\"GROUP\",\"DICT\"\r\n",
+            "\"HEADING\",\"DICT_TYPE\",\"DICT_GRP\",\"DICT_HDNG\",\"DICT_STAT\",\"DICT_DTYP\",\"DICT_UNIT\",\"DICT_PGRP\"\r\n",
+            "\"UNIT\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"\r\n",
+            "\"TYPE\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\",\"X\"\r\n",
+            "\"DATA\",\"HEADING\",\"XMON\",\"XMON_ID\",\"KEY\",\"ID\",\"\",\"\"\r\n",
+        )
+        .to_string();
+        let mut sidecar = Sidecar::assemble(split_dict.as_bytes(), stamp()).expect("assembles");
+        assert_eq!(sidecar.groups.get("DICT").map(Vec::len), Some(2));
+        sidecar.defines = None;
+        let no_fetch = |_span| panic!("a redeclared DICT is not sliceable");
+        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), None);
     }
 }

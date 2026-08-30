@@ -85,7 +85,7 @@ DuckDB face. The same typing, keys and validation back each surface.
 
 | function | what it does |
 |---|---|
-| `read_ags(path, group[, encoding := 'windows-1252'])` | one group as a typed table: `_id` + `_parent_id` (UUIDv8) first, then a column per heading typed from the file's `TYPE` row; streamed lazily. `encoding :=` (a WHATWG label, default `utf-8`) decodes a non-UTF-8 source file |
+| `read_ags(path, group[, encoding := 'windows-1252'])` | one group as a typed table: `_id` + `_parent_id` (UUIDv8) first, then a column per heading typed from the file's `TYPE` row; streamed lazily. Groups the file's own `DICT` declares (the AGS4 Rule 18 effective dictionary) read too — typed the same way, with NULL `_id`/`_parent_id` (no spec KEY headings to mint them from). `encoding :=` (a WHATWG label, default `utf-8`) decodes a non-UTF-8 source file |
 | `read_ags_text(content, group)` | same typed output, but the AGS4 text is passed as a VARCHAR argument (literal or bound parameter) instead of a path — no filesystem, so it's the reader available in the **WASM** build. No `encoding` param: a VARCHAR is already-decoded text (use `read_ags(path, encoding := …)` for a non-UTF-8 file) |
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |
@@ -106,7 +106,10 @@ only for a file that validated clean. This read-only extension **consumes** one:
 
 - **`read_ags`** range-reads just the requested group's bytes (one `seek` + `read`,
   local or remote) instead of slurping + parsing the whole file — the cold
-  single-group win, biggest on large deliveries.
+  single-group win, biggest on large deliveries. A file-declared (custom) group
+  stays on the fast path: a current cert names the groups the file's `DICT`
+  declares (`defines`), so admitting one costs no extra read; an older cert
+  answers with one more small ranged read of the `DICT` section.
 
 A read trusts a cheap **size** match (re-hashing a remote object to read one group
 would mean re-downloading it). Any change to the file makes the certificate stale —

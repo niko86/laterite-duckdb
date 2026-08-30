@@ -55,17 +55,22 @@ path = "src/wasm_lib.rs"
 # Carrying it bloated the binary and broke the community-extensions mingw build
 # (zstd-sys C symbols failed to link) and the wasm build (age→getrandom).
 #
-# The engine tier moves in lockstep, so all three carry the same requirement. It is
-# a caret: the engine promises no breaking change within a minor, and pinning `=`
+# The engine crates version PER CRATE since laterite's 0.12 cycle (the lockstep
+# retired), so these requirements move independently — each names the floor that
+# carries the API this reader consumes, and they need not agree. Each is a
+# caret: the engine promises no breaking change within a minor, and pinning `=`
 # would refuse a patched engine — the one upgrade this extension should always take,
 # since a fix there is a fix to what the reader returns.
-laterite-ags4-core = { version = "0.9.0", default-features = false }
-laterite-ags4-types = "0.9.0"
+#
+# core 0.13 floor: `index::Sidecar.defines` (the cert names the file-declared
+# groups) + the `effective_dict` re-export both ride the custom-group read.
+laterite-ags4-core = { version = "0.13.0", default-features = false }
+laterite-ags4-types = "0.12.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
-laterite-ags4-reference = "0.9.0"
+laterite-ags4-reference = "0.12.0"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
@@ -100,3 +105,4 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+

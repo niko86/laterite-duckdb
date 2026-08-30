@@ -3,8 +3,13 @@
 *.wal
 build/
 # `.ags.idx` certificates are a regenerable cache (`certify_ags` / the cold-read
-# index), never source — keep them out of the tree.
+# index), never source — keep them out of the tree…
 *.ags.idx
+# …except the sqllogictest fixtures: this read-only extension cannot mint a
+# cert (minting lives in the laterite engine), so these are committed test
+# INPUTS — the cert fast-path is untestable without them.
+!test/sql/custom.ags.idx
+!test/sql/custom_v2.ags.idx
 # `make configure` writes a venv + generated platform/version files here — all
 # regenerated per build, never committed (the venv alone is ~100 MB).
 configure/
