@@ -218,3 +218,91 @@ query T
 SELECT stmt FROM to_duckdb('test/sql/mini.ags', 'out.duckdb') WHERE seq = 9;
 ----
 DETACH _lat_out;
+
+# ---- File-declared (custom) groups: the Rule 18 effective dictionary ----
+# custom.ags declares bespoke group XMON in its own DICT (KEY PROJ_ID+XMON_ID,
+# a 2DP depth, parent PROJ); the engine-minted cert beside it carries
+# `defines`, so the cert fast-path admits XMON with no extra read. Three
+# byte-identical twins pin the three admit routes:
+#   custom.ags        cert with `defines`      (the field answers)
+#   custom_v2.ags     cert without `defines`   (one ranged read of DICT answers)
+#   custom_nocert.ags no cert                  (the whole-file parse answers)
+
+# The cert fast-path binds the custom group.
+query I
+SELECT count(*) FROM read_ags('test/sql/custom.ags', 'XMON');
+----
+2
+
+# Born-typed from the file's own TYPE row — the dictionary that typed this
+# column is the file's DICT, not the standard one.
+query T
+SELECT typeof(xmon_dpth) FROM read_ags('test/sql/custom.ags', 'XMON') LIMIT 1;
+----
+DOUBLE
+
+query I
+SELECT (xmon_dpth = 12.5)::INTEGER FROM read_ags('test/sql/custom.ags', 'XMON') WHERE xmon_id = 'M1';
+----
+1
+
+# Unkeyed: a file-declared group carries no spec KEY headings, so the engine
+# mints no content-addressed ids for it — `_id`/`_parent_id` are NULL (the
+# schema keeps the columns; the wheel builds the same unkeyed batch).
+query I
+SELECT count(*) FROM read_ags('test/sql/custom.ags', 'XMON') WHERE _id IS NULL AND _parent_id IS NULL;
+----
+2
+
+# …but `_content_hash` needs no dictionary at all: the value fingerprint is
+# minted from the file's own UNIT/TYPE rows, custom group or not.
+query I
+SELECT count(DISTINCT _content_hash) FROM read_ags('test/sql/custom.ags', 'XMON');
+----
+2
+
+# A pre-`defines` cert answers the admit question by range-reading its
+# single-span DICT — same rows, same typing.
+query I
+SELECT count(*) FROM read_ags('test/sql/custom_v2.ags', 'XMON');
+----
+2
+
+query T
+SELECT typeof(xmon_dpth) FROM read_ags('test/sql/custom_v2.ags', 'XMON') LIMIT 1;
+----
+DOUBLE
+
+# No cert: the whole-file parse builds the same effective dictionary.
+query I
+SELECT count(*) FROM read_ags('test/sql/custom_nocert.ags', 'XMON');
+----
+2
+
+# A standard group in the same certified file still binds keyed.
+query I
+SELECT count(*) FROM read_ags('test/sql/custom.ags', 'PROJ') WHERE _id IS NOT NULL;
+----
+1
+
+# Inline text reads the same union (a table function takes no subquery, so
+# the AGS text rides an E'' literal).
+query I
+SELECT count(*) FROM read_ags_text(E'"GROUP","DICT"\r\n"HEADING","DICT_TYPE","DICT_GRP","DICT_HDNG","DICT_STAT","DICT_DTYP","DICT_UNIT","DICT_PGRP"\r\n"UNIT","","","","","","",""\r\n"TYPE","X","X","X","X","X","X","X"\r\n"DATA","GROUP","XMON","","","","",""\r\n"DATA","HEADING","XMON","XMON_ID","KEY","ID","",""\r\n\r\n"GROUP","XMON"\r\n"HEADING","XMON_ID"\r\n"UNIT",""\r\n"TYPE","ID"\r\n"DATA","M1"\r\n"DATA","M2"\r\n', 'XMON');
+----
+2
+
+# A group declared by NEITHER side of the effective dictionary is still
+# refused — reading it would silently paper over what Rule 18 exists to catch.
+statement error
+SELECT * FROM read_ags('test/sql/custom_nocert.ags', 'ZZZZ');
+----
+not found
+
+# Present in the file but declared nowhere cannot happen in a clean fixture
+# (the validator would refuse to certify it), so the refusal message is pinned
+# through inline text carrying a declared-nowhere group.
+statement error
+SELECT * FROM read_ags_text(E'"GROUP","ZZZZ"\r\n"HEADING","ZZZZ_ID"\r\n"UNIT",""\r\n"TYPE","ID"\r\n"DATA","1"\r\n', 'ZZZZ');
+----
+the file's own DICT group does not declare it
