@@ -178,12 +178,10 @@ pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<(AgsGroup, Bin
     // read. Standard groups skip the DICT question entirely.
     let binding = if registry().get(group).is_some() {
         Binding::Keyed
-    } else if let Some(fd) = file_dict_declaring(&sidecar, group, |span| {
-        read_group_span(&handle, size, span, "DICT")
-    }) {
-        Binding::Declared(fd)
     } else {
-        return None;
+        Binding::Declared(file_dict_declaring(&sidecar, group, |span| {
+            read_group_span(&handle, size, span, "DICT")
+        })?)
     };
     let ags = read_group_span(&handle, size, sliceable_span(&sidecar, group)?, group)?;
     Some((ags, binding))
