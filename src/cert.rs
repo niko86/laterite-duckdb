@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 
 use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4};
-use laterite_ags4_core::effective_dict::file_dict_of;
+use laterite_ags4_core::effective_dict::{FileDict, file_dict_of};
 use laterite_ags4_core::index::{Sidecar, parse_group_slice};
 use laterite_ags4_core::registry::registry;
 use laterite_ags4_reference::dict::DictVersion;
@@ -116,51 +116,57 @@ fn read_group_span(
     parse_group_slice(&buf, (0, buf.len() as u64), group).ok()
 }
 
-/// The cert's answer to "does the file's own `DICT` group declare `group`?" —
-/// the Rule 18 admit question for a group the standard dictionary doesn't know.
+/// The declarations behind the cert's "does the file's own `DICT` declare
+/// `group`?" — the Rule 18 admit question for a group the standard dictionary
+/// doesn't know, answered with the [`FileDict`] itself because the caller now
+/// needs more than yes/no: minting the group's ids (niko86/laterite#815)
+/// reads the declared KEY tuple, which only the declarations carry.
 ///
-/// - `Some(yes/no)` when the cert can answer: the `defines` field where the
-///   minting engine measured it (no extra read at all), else one ranged read
-///   of a single-span `DICT` through `fetch`, funneled through the same
-///   [`file_dict_of`] the minting engine derives `defines` with — so the two
-///   routes agree on what "declares" means by construction.
-/// - `None` when it cannot: a pre-`defines` cert whose `DICT` is redeclared
-///   (not contiguous, so not sliceable). The caller falls back to the
-///   whole-file parse, which sees every span.
-///
-/// A cert with no `DICT` span at all answers `Some(false)` confidently: the
-/// index records every group section, so an absent `DICT` means the file
-/// declares nothing.
-fn file_declares(
+/// - `Some(fd)`: declared. The `defines` field can DENY with zero reads, but an
+///   admit always costs one ranged read of a single-span `DICT` through
+///   `fetch` — `defines` answers membership, never the tuple. The bytes are
+///   funneled through the same [`file_dict_of`] the minting engine derives
+///   `defines` with, so the two routes agree on what "declares" means by
+///   construction.
+/// - `None`: not declared (including a cert with no `DICT` span at all — the
+///   index records every group section, so an absent `DICT` means the file
+///   declares nothing), or a cert that cannot answer (a pre-`defines` cert
+///   whose `DICT` is redeclared — not contiguous, so not sliceable — or a
+///   failed fetch). The caller falls back to the whole-file parse, which sees
+///   every span and owns the one refusal message.
+fn file_dict_declaring(
     sidecar: &Sidecar,
     group: &str,
     fetch: impl FnOnce((u64, u64)) -> Option<AgsGroup>,
-) -> Option<bool> {
-    if let Some(defines) = &sidecar.defines {
-        return Some(defines.iter().any(|g| g == group));
+) -> Option<FileDict> {
+    if let Some(defines) = &sidecar.defines
+        && !defines.iter().any(|g| g == group)
+    {
+        return None;
     }
     if !sidecar.groups.contains_key("DICT") {
-        return Some(false);
+        return None;
     }
     let dict = fetch(sliceable_span(sidecar, "DICT")?)?;
     let parsed = ParsedAgs4 {
         groups: HashMap::from([("DICT".to_string(), dict)]),
         order: vec!["DICT".to_string()],
     };
-    Some(file_dict_of(&parsed).groups().contains(group))
+    let fd = file_dict_of(&parsed);
+    fd.groups().contains(group).then_some(fd)
 }
 
 /// **Read fast-path.** If a *size-fresh* cert indexes `group`, range-read just
 /// that group's bytes (one `seek` + `read`, local or remote) and parse the
 /// slice — O(group) instead of O(file) — plus how the group binds: keyed for a
-/// standard-dictionary group, unkeyed for one only the file's own `DICT`
-/// declares (admitted via [`file_declares`], at most one extra small ranged
-/// read). Returns `None` (→ whole-file parse) on any miss: no cert, a size
-/// change, a group the cert doesn't index, a slice that won't parse, or an
-/// admit question this cert cannot answer. A group the cert says is declared
-/// NOWHERE also falls back rather than erroring here — the whole-file path
-/// reaches the same conclusion from the live bytes and owns the one refusal
-/// message.
+/// standard-dictionary group, declared for one only the file's own `DICT`
+/// carries (one extra small ranged `DICT` read via [`file_dict_declaring`],
+/// which also hands over the declarations the id minting needs). Returns
+/// `None` (→ whole-file parse) on any miss: no cert, a size change, a group
+/// the cert doesn't index, a slice that won't parse, or an admit question this
+/// cert cannot answer. A group the cert says is declared NOWHERE also falls
+/// back rather than erroring here — the whole-file path reaches the same
+/// conclusion from the live bytes and owns the one refusal message.
 pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<(AgsGroup, Binding)> {
     let sidecar = load_sidecar(vfs, path)?;
     let (handle, size) = vfs.open_for_read(path).ok()?;
@@ -172,10 +178,10 @@ pub fn sliced_group(vfs: &Vfs, path: &str, group: &str) -> Option<(AgsGroup, Bin
     // read. Standard groups skip the DICT question entirely.
     let binding = if registry().get(group).is_some() {
         Binding::Keyed
-    } else if file_declares(&sidecar, group, |span| {
+    } else if let Some(fd) = file_dict_declaring(&sidecar, group, |span| {
         read_group_span(&handle, size, span, "DICT")
-    })? {
-        Binding::Unkeyed
+    }) {
+        Binding::Declared(fd)
     } else {
         return None;
     };
@@ -295,7 +301,7 @@ mod tests {
     );
 
     /// The in-memory stand-in for the ranged read `sliced_group` hands
-    /// [`file_declares`] — same slice-then-parse, no VFS.
+    /// [`file_dict_declaring`] — same slice-then-parse, no VFS.
     fn fetch_from(bytes: &'static [u8]) -> impl FnOnce((u64, u64)) -> Option<AgsGroup> {
         move |(start, end)| {
             let slice = &bytes[start as usize..end as usize];
@@ -303,38 +309,40 @@ mod tests {
         }
     }
 
-    /// A cert whose minting engine measured `defines` answers the admit
-    /// question from the field alone — the fetch must never run, because on a
-    /// remote object it is a ranged GET.
+    /// `defines` still DENIES with zero reads — on a remote object the fetch
+    /// is a ranged GET, so a group the cert says is undeclared must not cost
+    /// one. An ADMIT now always fetches: minting needs the declared KEY tuple,
+    /// and `defines` carries membership only.
     #[test]
-    fn defines_answers_without_any_fetch() {
+    fn defines_denies_without_any_fetch_but_an_admit_reads_dict() {
         let sidecar = Sidecar::assemble(WITH_DICT.as_bytes(), stamp()).expect("assembles");
         assert_eq!(
             sidecar.defines.as_deref(),
             Some(&["XMON".to_string()][..]),
             "0.13 assemble measures the file-declared set"
         );
-        let no_fetch = |_span| panic!("defines answered — no DICT read may happen");
-        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), Some(true));
-        assert_eq!(file_declares(&sidecar, "ZZZZ", no_fetch), Some(false));
+        let no_fetch = |_span| panic!("defines denied — no DICT read may happen");
+        assert!(file_dict_declaring(&sidecar, "ZZZZ", no_fetch).is_none());
+        let fd = file_dict_declaring(&sidecar, "XMON", fetch_from(WITH_DICT.as_bytes()))
+            .expect("declared — the fetched DICT admits it");
+        assert_eq!(fd.parent("XMON"), Some("PROJ"));
+        let keys: Vec<&str> = fd
+            .key_headings("XMON")
+            .map(|h| h.heading.as_str())
+            .collect();
+        assert_eq!(keys, ["XMON_ID"]);
     }
 
-    /// A pre-`defines` cert (the field absent) answers by one ranged read of
-    /// its single-span DICT — through the same `file_dict_of` the minting
-    /// engine measures `defines` with.
+    /// A pre-`defines` cert (the field absent) answers by the same one ranged
+    /// read of its single-span DICT — through the same `file_dict_of` the
+    /// minting engine measures `defines` with.
     #[test]
     fn a_pre_defines_cert_slices_dict_to_answer() {
         let mut sidecar = Sidecar::assemble(WITH_DICT.as_bytes(), stamp()).expect("assembles");
         sidecar.defines = None; // an older cert: unmeasured, not measured-empty
         let bytes = WITH_DICT.as_bytes();
-        assert_eq!(
-            file_declares(&sidecar, "XMON", fetch_from(bytes)),
-            Some(true)
-        );
-        assert_eq!(
-            file_declares(&sidecar, "ZZZZ", fetch_from(bytes)),
-            Some(false)
-        );
+        assert!(file_dict_declaring(&sidecar, "XMON", fetch_from(bytes)).is_some());
+        assert!(file_dict_declaring(&sidecar, "ZZZZ", fetch_from(bytes)).is_none());
     }
 
     /// No DICT section in the index at all is a confident no: the index
@@ -344,7 +352,7 @@ mod tests {
         let mut sidecar = Sidecar::assemble(REDECLARED.as_bytes(), stamp()).expect("assembles");
         sidecar.defines = None;
         let no_fetch = |_span| panic!("no DICT span exists — nothing to fetch");
-        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), Some(false));
+        assert!(file_dict_declaring(&sidecar, "XMON", no_fetch).is_none());
     }
 
     /// A pre-`defines` cert whose DICT is REDECLARED cannot answer by slicing
@@ -371,8 +379,14 @@ mod tests {
         .to_string();
         let mut sidecar = Sidecar::assemble(split_dict.as_bytes(), stamp()).expect("assembles");
         assert_eq!(sidecar.groups.get("DICT").map(Vec::len), Some(2));
+        // With `defines` measured, the admit is known — but the tuple is not,
+        // and a redeclared DICT cannot be sliced to learn it. Still `None`:
+        // the whole-file parse mints instead. Then the same with the field
+        // absent, where even the admit is unanswerable.
+        let no_fetch = |_span| panic!("a redeclared DICT is not sliceable");
+        assert!(file_dict_declaring(&sidecar, "XMON", no_fetch).is_none());
         sidecar.defines = None;
         let no_fetch = |_span| panic!("a redeclared DICT is not sliceable");
-        assert_eq!(file_declares(&sidecar, "XMON", no_fetch), None);
+        assert!(file_dict_declaring(&sidecar, "XMON", no_fetch).is_none());
     }
 }

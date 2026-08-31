@@ -85,7 +85,7 @@ DuckDB face. The same typing, keys and validation back each surface.
 
 | function | what it does |
 |---|---|
-| `read_ags(path, group[, encoding := 'windows-1252'])` | one group as a typed table: `_id` + `_parent_id` (UUIDv8) first, then a column per heading typed from the file's `TYPE` row; streamed lazily. Groups the file's own `DICT` declares (the AGS4 Rule 18 effective dictionary) read too — typed the same way, with NULL `_id`/`_parent_id` (no spec KEY headings to mint them from). `encoding :=` (a WHATWG label, default `utf-8`) decodes a non-UTF-8 source file |
+| `read_ags(path, group[, encoding := 'windows-1252'])` | one group as a typed table: `_id` + `_parent_id` (UUIDv8) first, then a column per heading typed from the file's `TYPE` row; streamed lazily. Groups the file's own `DICT` declares (the AGS4 Rule 18 effective dictionary) read too — typed the same way, with `_id`/`_parent_id` minted from the KEY tuple and parent the declaration itself carries (NULL only when it declares no KEYs). `encoding :=` (a WHATWG label, default `utf-8`) decodes a non-UTF-8 source file |
 | `read_ags_text(content, group)` | same typed output, but the AGS4 text is passed as a VARCHAR argument (literal or bound parameter) instead of a path — no filesystem, so it's the reader available in the **WASM** build. No `encoding` param: a VARCHAR is already-decoded text (use `read_ags(path, encoding := …)` for a non-UTF-8 file) |
 | `ags_groups(path)` | the file's groups — `(group, n_rows, n_headings, parent)` |
 | `ags_headings(path)` | per-heading detail — `(group, heading, unit, ags_type, sql_type, status, is_key, ordinal)` |

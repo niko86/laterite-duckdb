@@ -222,9 +222,13 @@ DETACH _lat_out;
 # ---- File-declared (custom) groups: the Rule 18 effective dictionary ----
 # custom.ags declares bespoke group XMON in its own DICT (KEY PROJ_ID+XMON_ID,
 # a 2DP depth, parent PROJ); the engine-minted cert beside it carries
-# `defines`, so the cert fast-path admits XMON with no extra read. Three
-# byte-identical twins pin the three admit routes:
-#   custom.ags        cert with `defines`      (the field answers)
+# `defines`. Since the engine owns file-declared identity (#41,
+# niko86/laterite#815) an admitted custom group also MINTS: `defines` still
+# denies with zero reads, but an admit costs one ranged DICT read — the KEY
+# tuple lives in the declarations, not the field. Three byte-identical twins
+# pin the three admit routes, and because they are byte-identical their minted
+# ids must agree:
+#   custom.ags        cert with `defines`      (deny free; admit reads DICT)
 #   custom_v2.ags     cert without `defines`   (one ranged read of DICT answers)
 #   custom_nocert.ags no cert                  (the whole-file parse answers)
 
@@ -246,11 +250,21 @@ SELECT (xmon_dpth = 12.5)::INTEGER FROM read_ags('test/sql/custom.ags', 'XMON') 
 ----
 1
 
-# Unkeyed: a file-declared group carries no spec KEY headings, so the engine
-# mints no content-addressed ids for it — `_id`/`_parent_id` are NULL (the
-# schema keeps the columns; the wheel builds the same unkeyed batch).
+# Minted from the file's OWN declared KEY tuple (PROJ_ID + XMON_ID), through
+# the engine's `group_row_ids_effective` — the exact values the wheel mints for
+# this file, pinned so a cross-surface identity drift goes red here.
+query TT
+SELECT _id, _parent_id FROM read_ags('test/sql/custom.ags', 'XMON') ORDER BY xmon_id;
+----
+9fdea4c6-93a8-8239-9920-ba882a3623fd	ac30a95d-e0ca-85f9-83c8-37a64af2762b
+66ea7835-3ed4-8d2d-a384-d765ac36eb35	ac30a95d-e0ca-85f9-83c8-37a64af2762b
+
+# The declared DICT_PGRP parent chain joins for real: XMON's _parent_id IS the
+# PROJ row's _id — the cross-boundary join a standard child gets, on a group
+# the standard dictionary has never heard of.
 query I
-SELECT count(*) FROM read_ags('test/sql/custom.ags', 'XMON') WHERE _id IS NULL AND _parent_id IS NULL;
+SELECT count(*) FROM read_ags('test/sql/custom.ags', 'XMON') x
+JOIN read_ags('test/sql/custom.ags', 'PROJ') p ON x._parent_id = p._id;
 ----
 2
 
@@ -262,7 +276,7 @@ SELECT count(DISTINCT _content_hash) FROM read_ags('test/sql/custom.ags', 'XMON'
 2
 
 # A pre-`defines` cert answers the admit question by range-reading its
-# single-span DICT — same rows, same typing.
+# single-span DICT — same rows, same typing, same minted ids.
 query I
 SELECT count(*) FROM read_ags('test/sql/custom_v2.ags', 'XMON');
 ----
@@ -273,11 +287,22 @@ SELECT typeof(xmon_dpth) FROM read_ags('test/sql/custom_v2.ags', 'XMON') LIMIT 1
 ----
 DOUBLE
 
-# No cert: the whole-file parse builds the same effective dictionary.
+query T
+SELECT _id FROM read_ags('test/sql/custom_v2.ags', 'XMON') ORDER BY xmon_id LIMIT 1;
+----
+9fdea4c6-93a8-8239-9920-ba882a3623fd
+
+# No cert: the whole-file parse builds the same effective dictionary and mints
+# the same ids.
 query I
 SELECT count(*) FROM read_ags('test/sql/custom_nocert.ags', 'XMON');
 ----
 2
+
+query T
+SELECT _id FROM read_ags('test/sql/custom_nocert.ags', 'XMON') ORDER BY xmon_id LIMIT 1;
+----
+9fdea4c6-93a8-8239-9920-ba882a3623fd
 
 # A standard group in the same certified file still binds keyed.
 query I
@@ -286,9 +311,18 @@ SELECT count(*) FROM read_ags('test/sql/custom.ags', 'PROJ') WHERE _id IS NOT NU
 1
 
 # Inline text reads the same union (a table function takes no subquery, so
-# the AGS text rides an E'' literal).
+# the AGS text rides an E'' literal) — and mints: one declared KEY, no parent,
+# so distinct _id per row and NULL _parent_id.
+query II
+SELECT count(DISTINCT _id), count(_parent_id) FROM read_ags_text(E'"GROUP","DICT"\r\n"HEADING","DICT_TYPE","DICT_GRP","DICT_HDNG","DICT_STAT","DICT_DTYP","DICT_UNIT","DICT_PGRP"\r\n"UNIT","","","","","","",""\r\n"TYPE","X","X","X","X","X","X","X"\r\n"DATA","GROUP","XMON","","","","",""\r\n"DATA","HEADING","XMON","XMON_ID","KEY","ID","",""\r\n\r\n"GROUP","XMON"\r\n"HEADING","XMON_ID"\r\n"UNIT",""\r\n"TYPE","ID"\r\n"DATA","M1"\r\n"DATA","M2"\r\n', 'XMON');
+----
+2	0
+
+# A declaration with no KEY headings stays unkeyed — an empty key tuple would
+# stamp every row identically, so the engine's answer is the unkeyed batch and
+# the id columns hold NULLs (the schema keeps them).
 query I
-SELECT count(*) FROM read_ags_text(E'"GROUP","DICT"\r\n"HEADING","DICT_TYPE","DICT_GRP","DICT_HDNG","DICT_STAT","DICT_DTYP","DICT_UNIT","DICT_PGRP"\r\n"UNIT","","","","","","",""\r\n"TYPE","X","X","X","X","X","X","X"\r\n"DATA","GROUP","XMON","","","","",""\r\n"DATA","HEADING","XMON","XMON_ID","KEY","ID","",""\r\n\r\n"GROUP","XMON"\r\n"HEADING","XMON_ID"\r\n"UNIT",""\r\n"TYPE","ID"\r\n"DATA","M1"\r\n"DATA","M2"\r\n', 'XMON');
+SELECT count(*) FROM read_ags_text(E'"GROUP","DICT"\r\n"HEADING","DICT_TYPE","DICT_GRP","DICT_HDNG","DICT_STAT","DICT_DTYP","DICT_UNIT","DICT_PGRP"\r\n"UNIT","","","","","","",""\r\n"TYPE","X","X","X","X","X","X","X"\r\n"DATA","GROUP","XNOT","","","","",""\r\n"DATA","HEADING","XNOT","XNOT_DESC","OTHER","X","",""\r\n\r\n"GROUP","XNOT"\r\n"HEADING","XNOT_DESC"\r\n"UNIT",""\r\n"TYPE","X"\r\n"DATA","first note"\r\n"DATA","second note"\r\n', 'XNOT') WHERE _id IS NULL AND _parent_id IS NULL;
 ----
 2
 

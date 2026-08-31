@@ -16,16 +16,19 @@
 //!   (already-decoded UTF-8) — no VFS, no `encoding` param.
 //!
 //! A group only the file's own `DICT` declares binds like any other — columns
-//! typed from its TYPE row — but **unkeyed**: the engine mints content-addressed
-//! ids from spec KEY headings only, so `_id`/`_parent_id` are NULL (the same
-//! unkeyed batch the wheel builds for that group). A group declared by neither
-//! side of the effective dictionary is refused at bind.
+//! typed from its TYPE row — and since niko86/laterite#815 its
+//! `_id`/`_parent_id` are minted from the KEY tuple the file itself declares
+//! (`DICT_STAT` KEY headings + `DICT_PGRP` parent), through the same
+//! engine-owned keychain path as the wheel, so ids agree across surfaces. A
+//! declaration with no KEY headings stays unkeyed — NULL ids — because an
+//! empty key tuple would stamp every row identically. A group declared by
+//! neither side of the effective dictionary is refused at bind.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
 use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4, read_ags4_bytes};
-use laterite_ags4_core::effective_dict::file_dict_of;
+use laterite_ags4_core::effective_dict::{FileDict, file_dict_of};
 use laterite_ags4_core::keychain;
 use laterite_ags4_core::registry::registry;
 use libduckdb_sys as ffi;
@@ -43,9 +46,13 @@ pub enum Binding {
     /// A standard-dictionary group: `_id`/`_parent_id` minted from its spec
     /// KEY headings via the shared `keychain`.
     Keyed,
-    /// A group only the file's own `DICT` declares: no spec keys exist, so
-    /// `_id`/`_parent_id` are NULL — the engine's documented unkeyed batch.
-    Unkeyed,
+    /// A group only the file's own `DICT` declares: ids minted from the KEY
+    /// tuple that declaration carries, so the minting needs the declarations
+    /// themselves — the admit alone is not enough. The `FileDict` rides in the
+    /// binding because whoever admitted the group necessarily had it (or its
+    /// bytes) in hand; carrying it here is what keeps the cert fast-path at
+    /// one DICT read, not two.
+    Declared(FileDict),
 }
 
 /// The harness declares column names as `&'static str`, but AGS heading names
@@ -120,8 +127,9 @@ fn binding_for(parsed: &ParsedAgs4, group: &str) -> Result<Binding, String> {
     if registry().get(group).is_some() {
         return Ok(Binding::Keyed);
     }
-    if file_dict_of(parsed).groups().contains(group) {
-        return Ok(Binding::Unkeyed);
+    let fd = file_dict_of(parsed);
+    if fd.groups().contains(group) {
+        return Ok(Binding::Declared(fd));
     }
     Err(format!(
         "group '{group}' is not in the AGS dictionary and the file's own DICT group does not \
@@ -143,8 +151,10 @@ fn resolve_group<'a>(parsed: &'a ParsedAgs4, group: &str) -> Result<&'a AgsGroup
 /// Build the typed `(columns, rows)` for one admitted group: `_id`,
 /// `_parent_id`, then one column per heading typed from the file's own TYPE row.
 /// A [`Binding::Keyed`] group gets each row's deterministic `keychain` ids
-/// precomputed (one SHA-256 each); a [`Binding::Unkeyed`] one keeps the id
-/// columns — the schema is the same for every group — as NULLs.
+/// precomputed (one SHA-256 each); a [`Binding::Declared`] one mints them from
+/// the KEY tuple its own `DICT` declaration carries — unless that declaration
+/// names no KEYs, in which case the id columns (the schema is the same for
+/// every group) are NULLs.
 #[allow(clippy::type_complexity)]
 fn build_table(
     ags: &AgsGroup,
@@ -179,23 +189,35 @@ fn build_table(
     // `_id`/`_parent_id` for every row up front, via the positional batch keychain
     // (KEY columns resolved once per group) — the same path laterite's own reader
     // uses. `ags.rows` is now keyed by shared `Arc<str>` heading names, so a column
-    // `c` is read by resolving it to its heading name. An unkeyed (file-declared)
-    // group skips the minting: `group_row_ids` has no spec KEY headings to
-    // resolve for it, and its documented answer — an empty vec — must become
-    // per-row NULLs here, never zero rows.
+    // `c` is read by resolving it to its heading name. A file-declared group
+    // mints from its own declared KEY tuple + `DICT_PGRP` parent instead — the
+    // engine's `group_row_ids_effective`, so its ids agree with the wheel's.
+    // Its documented keyless answer — an empty vec — must become per-row NULLs
+    // here, never zero rows.
+    let cell = |c: usize, r: usize| {
+        ags.rows[r]
+            .get(ags.headings[c].as_str())
+            .map(String::as_str)
+    };
     let ids: Option<Vec<(String, Option<String>)>> = match binding {
         Binding::Keyed => Some(keychain::group_row_ids(
             registry(),
             group,
             &ags.headings,
             ags.rows.len(),
-            |c, r| {
-                ags.rows[r]
-                    .get(ags.headings[c].as_str())
-                    .map(String::as_str)
-            },
+            cell,
         )),
-        Binding::Unkeyed => None,
+        Binding::Declared(fd) => {
+            let v = keychain::group_row_ids_effective(
+                registry(),
+                fd,
+                group,
+                &ags.headings,
+                ags.rows.len(),
+                cell,
+            );
+            (!v.is_empty()).then_some(v)
+        }
     };
 
     let rows: Vec<Vec<Cell>> = ags

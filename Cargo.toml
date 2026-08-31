@@ -62,15 +62,20 @@ path = "src/wasm_lib.rs"
 # would refuse a patched engine — the one upgrade this extension should always take,
 # since a fix there is a fix to what the reader returns.
 #
-# core 0.13 floor: `index::Sidecar.defines` (the cert names the file-declared
-# groups) + the `effective_dict` re-export both ride the custom-group read.
-laterite-ags4-core = { version = "0.13.0", default-features = false }
+# core 0.13.1 floor: `index::Sidecar.defines` (the cert names the file-declared
+# groups) + the `effective_dict` re-export ride the custom-group read, and
+# 0.13.1's keychain re-export carries `group_row_ids_effective` — the
+# engine-owned minting of a file-declared group's ids from its DICT KEY tuple
+# (#41, niko86/laterite#815).
+laterite-ags4-core = { version = "0.13.1", default-features = false }
 laterite-ags4-types = "0.12.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
-laterite-ags4-reference = "0.12.0"
+# Held level with core's own reference minor so the workspace resolves ONE copy
+# (a split would compile two dictionaries into the binary).
+laterite-ags4-reference = "0.13.0"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
