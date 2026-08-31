@@ -43,6 +43,21 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      # Dependency cache for the clippy/test half below. The job's whole cost is
+      # ONE dependency: the bundled-test libduckdb-sys compiling DuckDB's C++
+      # amalgamation for `cargo clippy --all-targets` / `cargo test` (the
+      # loadable `make debug` build never compiles DuckDB — it links into a
+      # host). rust-cache stores ~/.cargo + target/'s dependency artifacts in
+      # the Actions cache service, so that compile happens once per
+      # lockfile/toolchain change instead of once per push. Scope-safe with the
+      # fork stance above: a PR restores only main's or its own caches, and its
+      # writes never land in main's scope. `cache-on-failure` because a red
+      # clippy run has already paid the compile — keep it for the fix-up push.
+      - name: Rust dependency cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
       # Cheap fail-fast before any build. `--all` is safe now that the laterite
       # crates come from crates.io: it used to reach into the vendored `laterite/`
       # submodule (a path-dep workspace) and fmt-check code this repo does not own.
