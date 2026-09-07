@@ -21,8 +21,6 @@
 //! size-based; the format's `etag`/`last_modified` fields serve a future
 //! header-capable consumer.
 
-use std::collections::HashMap;
-
 use laterite_ags4_core::ags4_codec::{AgsGroup, ParsedAgs4};
 use laterite_ags4_core::effective_dict::{FileDict, file_dict_of};
 use laterite_ags4_core::index::{Sidecar, parse_group_slice};
@@ -148,10 +146,10 @@ fn file_dict_declaring(
         return None;
     }
     let dict = fetch(sliceable_span(sidecar, "DICT")?)?;
-    let parsed = ParsedAgs4 {
-        groups: HashMap::from([("DICT".to_string(), dict)]),
-        order: vec!["DICT".to_string()],
-    };
+    // `from_groups` is construction's one door since core 0.14 closed the
+    // struct (the next layout change is not another break); it keys and
+    // orders by the group's own code, so a sliced DICT lands identically.
+    let parsed = ParsedAgs4::from_groups(vec![dict]);
     let fd = file_dict_of(&parsed);
     fd.groups().contains(group).then_some(fd)
 }

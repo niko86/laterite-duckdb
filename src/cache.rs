@@ -174,13 +174,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap as Map;
 
     fn parsed_stub() -> ParsedAgs4 {
-        ParsedAgs4 {
-            groups: Map::new(),
-            order: Vec::new(),
-        }
+        // Construction's one door since core 0.14 closed the struct; an empty
+        // group list is the same empty document the literal built.
+        ParsedAgs4::from_groups(Vec::new())
     }
 
     /// A miss builds; an immediate second call for the same (path,size) is a hit

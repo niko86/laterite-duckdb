@@ -143,7 +143,7 @@ fn resolve_group<'a>(parsed: &'a ParsedAgs4, group: &str) -> Result<&'a AgsGroup
     parsed.get(group).ok_or_else(|| {
         format!(
             "group '{group}' not found (groups present: {})",
-            parsed.order.join(", ")
+            parsed.order().join(", ")
         )
     })
 }
@@ -163,16 +163,20 @@ fn build_table(
 ) -> Result<(Vec<(&'static str, ColType)>, Vec<Vec<Cell>>), String> {
     // Schema: the deterministic identity keys first, then one column per heading
     // typed from the file's own TYPE row, then a trailing `_content_hash`.
-    let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings.len() + 3);
+    let mut columns: Vec<(&'static str, ColType)> = Vec::with_capacity(ags.headings().len() + 3);
     columns.push(("_id", ColType::Varchar));
     columns.push(("_parent_id", ColType::Varchar));
 
     // Per-heading (name, ags_type, emit-kind), aligned with the TYPE row. A
     // heading past the end of the TYPE row (a short TYPE line) defaults to `X`
     // (free text → VARCHAR), matching the whole-file reader.
-    let mut plan: Vec<(String, String, Emit)> = Vec::with_capacity(ags.headings.len());
-    for (i, heading) in ags.headings.iter().enumerate() {
-        let ags_type = ags.types.get(i).cloned().unwrap_or_else(|| "X".to_string());
+    let mut plan: Vec<(String, String, Emit)> = Vec::with_capacity(ags.headings().len());
+    for (i, heading) in ags.headings().iter().enumerate() {
+        let ags_type = ags
+            .types()
+            .get(i)
+            .cloned()
+            .unwrap_or_else(|| "X".to_string());
         let kind = Emit::of(&ags_type);
         columns.push((intern(heading), kind.col_type()));
         plan.push((heading.clone(), ags_type, kind));
@@ -188,23 +192,22 @@ fn build_table(
 
     // `_id`/`_parent_id` for every row up front, via the positional batch keychain
     // (KEY columns resolved once per group) — the same path laterite's own reader
-    // uses. `ags.rows` is now keyed by shared `Arc<str>` heading names, so a column
-    // `c` is read by resolving it to its heading name. A file-declared group
-    // mints from its own declared KEY tuple + `DICT_PGRP` parent instead — the
-    // engine's `group_row_ids_effective`, so its ids agree with the wheel's.
+    // uses. Since core 0.14 the group LENDS cells through positional accessors
+    // (`cell(row, col)`, span-backed — the owned rows field is gone), and the
+    // accessor's contract is the keychain's: `Some("")` for a short row's
+    // missing tail, trimmed on read — so the closure below is exactly what the
+    // wheel feeds, and the minted ids agree by construction. A file-declared
+    // group mints from its own declared KEY tuple + `DICT_PGRP` parent instead —
+    // the engine's `group_row_ids_effective`, so its ids agree with the wheel's.
     // Its documented keyless answer — an empty vec — must become per-row NULLs
     // here, never zero rows.
-    let cell = |c: usize, r: usize| {
-        ags.rows[r]
-            .get(ags.headings[c].as_str())
-            .map(String::as_str)
-    };
+    let cell = |c: usize, r: usize| ags.cell(r, c);
     let ids: Option<Vec<(String, Option<String>)>> = match binding {
         Binding::Keyed => Some(keychain::group_row_ids(
             registry(),
             group,
-            &ags.headings,
-            ags.rows.len(),
+            ags.headings(),
+            ags.n_rows(),
             cell,
         )),
         Binding::Declared(fd) => {
@@ -212,19 +215,16 @@ fn build_table(
                 registry(),
                 fd,
                 group,
-                &ags.headings,
-                ags.rows.len(),
+                ags.headings(),
+                ags.n_rows(),
                 cell,
             );
             (!v.is_empty()).then_some(v)
         }
     };
 
-    let rows: Vec<Vec<Cell>> = ags
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(r, row)| {
+    let rows: Vec<Vec<Cell>> = (0..ags.n_rows())
+        .map(|r| {
             let mut cells: Vec<Cell> = Vec::with_capacity(plan.len() + 3);
             match ids.as_ref().map(|v| &v[r]) {
                 Some((id, parent)) => {
@@ -236,24 +236,25 @@ fn build_table(
                     cells.push(Cell::Null);
                 }
             }
-            for (heading, ags_type, kind) in &plan {
-                let raw = row.get(heading.as_str()).map(String::as_str);
-                cells.push(cell_for(raw, ags_type, *kind));
+            // `plan` is built from `headings()` in order, so the plan index IS
+            // the column index — positional access, no name lookup per cell.
+            for (c, (_heading, ags_type, kind)) in plan.iter().enumerate() {
+                cells.push(cell_for(ags.cell(r, c), ags_type, *kind));
             }
             // Trailing `_content_hash` — see the column note above. Built from the
             // file's own UNIT + TYPE rows (per-file canonicalisation), exactly the
             // (heading, unit, type, value) tuples `keychain::group_content_hashes`
             // feeds on the other surfaces, so the digest is byte-identical.
             let hash_cells: Vec<(&str, &str, &str, &str)> = ags
-                .headings
+                .headings()
                 .iter()
                 .enumerate()
                 .map(|(i, h)| {
                     (
                         h.as_str(),
-                        ags.units.get(i).map(String::as_str).unwrap_or(""),
-                        ags.types.get(i).map(String::as_str).unwrap_or(""),
-                        row.get(h.as_str()).map(String::as_str).unwrap_or(""),
+                        ags.units().get(i).map(String::as_str).unwrap_or(""),
+                        ags.types().get(i).map(String::as_str).unwrap_or(""),
+                        ags.cell(r, i).unwrap_or(""),
                     )
                 })
                 .collect();
