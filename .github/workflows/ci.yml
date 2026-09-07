@@ -77,6 +77,27 @@ jobs:
             exit 1
           }
 
+      # One copy of each engine crate, and the resolved versions printed on
+      # every run. Cargo.toml states the invariant ("the workspace resolves ONE
+      # copy — a split would compile two dictionaries into the binary") but
+      # until now nothing held it, and it is genuinely breakable from outside:
+      # reference 0.13.1 — a PATCH, the always-take lane — moved its parse
+      # floor across a 0.x minor, so taking it beside core 0.13.1 resolves TWO
+      # copies of laterite-ags4-parse. Under this gate that update PR goes red,
+      # which is the correct answer: the fix is aligning the floors (usually
+      # the next engine adoption), never shipping a split tree. The printed
+      # pairs double as the lag report — what this binary actually builds
+      # against, visible in every log without asking.
+      - name: engine resolves to one copy per crate
+        run: |
+          pairs=$(awk -F'"' '/^name = "laterite-ags4-|^name = "laterite-transport/{name=$2; getline; ver=$2; print name" "ver}' Cargo.lock)
+          echo "$pairs"
+          dups=$(echo "$pairs" | awk '{print $1}' | sort | uniq -d)
+          [ -z "$dups" ] || {
+            echo "::error::engine crate resolved at two versions: $dups — a floor moved across a 0.x minor and split the tree; align the floors rather than shipping two copies"
+            exit 1
+          }
+
       # --- loadable build first, then the bundled-test build ---
       # The extension is built two ways that CAN'T share a target/: the
       # *loadable-extension* libduckdb-sys (the real artifact `make` builds) and the

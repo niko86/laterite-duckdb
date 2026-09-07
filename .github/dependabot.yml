@@ -1,0 +1,41 @@
+# Keep the engine floors honest without hand-watching them.
+#
+# The laterite library crates version PER CRATE (the lockstep retired at
+# laterite's 0.12 cycle), and this repo's own manifest comment states the
+# policy: a PATCH under a floor is "the one upgrade this extension should
+# always take, since a fix there is a fix to what the reader returns" — yet
+# nothing took them (the lock sat one reference patch behind for a week with
+# nobody told). Weekly grouped patch PRs close that gap.
+#
+# MINOR bumps arrive INDIVIDUALLY, on purpose, and differently from the
+# mother repo's grouped minor+patch style: on a 0.x floor a minor is a
+# breaking line (`^0.13` never resolves 0.14), so an engine minor here is an
+# ADOPTION with code behind it, not a version edit — e.g. core 0.14 removed
+# the `AgsGroup.rows` field this reader touches. An individual PR per minor
+# is the visible marker that the engine moved under us; it may legitimately
+# sit open until the adoption is done (the "number tracks laterite, and the
+# extension legitimately lags between releases" convention), and grouping it
+# with patches would drag the always-take lane red behind it.
+version: 2
+updates:
+  # GitHub Actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Rust crates — the glue crate at the repo root.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      cargo-patches:
+        update-types: ["patch"]
