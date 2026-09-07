@@ -34,7 +34,7 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
         let columns = vec![("seq", ColType::BigInt), ("stmt", ColType::Varchar)];
 
         let mut rows: Vec<Vec<Cell>> = Vec::new();
-        for code in &parsed.order {
+        for code in parsed.order() {
             let tbl = format!("ags_{}", code.to_lowercase());
             let mut stmts = vec![
                 format!("CREATE TABLE {tbl} AS SELECT * FROM read_ags('{lit}', '{code}');"),

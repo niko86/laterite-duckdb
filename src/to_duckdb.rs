@@ -44,7 +44,7 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
             Cell::Int(0),
             Cell::Str(format!("ATTACH '{out_lit}' AS _lat_out;")),
         ]);
-        for code in &parsed.order {
+        for code in parsed.order() {
             let lc = code.to_lowercase();
             let tbl = format!("_lat_out.ags_{lc}"); // schema-qualified into the attached db
             let mut stmts = vec![

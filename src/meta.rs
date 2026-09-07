@@ -43,7 +43,7 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
             ("parent", ColType::Varchar),
         ];
         let rows = parsed
-            .order
+            .order()
             .iter()
             .map(|code| {
                 let g = parsed.get(code).expect("group from order exists");
@@ -56,8 +56,8 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
                     .or_else(|| file_parent(&fd, code));
                 vec![
                     Cell::Str(code.clone()),
-                    Cell::Int(g.rows.len() as i64),
-                    Cell::Int(g.headings.len() as i64),
+                    Cell::Int(g.n_rows() as i64),
+                    Cell::Int(g.headings().len() as i64),
                     parent.map_or(Cell::Null, Cell::Str),
                 ]
             })
@@ -86,14 +86,14 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
             ("ordinal", ColType::BigInt),
         ];
         let mut rows = Vec::new();
-        for code in &parsed.order {
+        for code in parsed.order() {
             let g = parsed.get(code).expect("group from order exists");
             let desc = reg.get(code);
-            for (i, heading) in g.headings.iter().enumerate() {
+            for (i, heading) in g.headings().iter().enumerate() {
                 // AGS4 carries the type/unit per heading in its own TYPE/UNIT
                 // rows; a shorter-than-headings row falls back to empty.
-                let ags_type = g.types.get(i).cloned().unwrap_or_default();
-                let unit = g.units.get(i).cloned().unwrap_or_default();
+                let ags_type = g.types().get(i).cloned().unwrap_or_default();
+                let unit = g.units().get(i).cloned().unwrap_or_default();
                 // Status from the effective dictionary: the registry where it
                 // answers, else the file's own DICT_STAT declaration (Rule 18
                 // — this is where a declared custom group's KEY headings come

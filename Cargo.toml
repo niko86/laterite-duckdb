@@ -62,12 +62,15 @@ path = "src/wasm_lib.rs"
 # would refuse a patched engine — the one upgrade this extension should always take,
 # since a fix there is a fix to what the reader returns.
 #
-# core 0.13.1 floor: `index::Sidecar.defines` (the cert names the file-declared
-# groups) + the `effective_dict` re-export ride the custom-group read, and
-# 0.13.1's keychain re-export carries `group_row_ids_effective` — the
-# engine-owned minting of a file-declared group's ids from its DICT KEY tuple
-# (#41, niko86/laterite#815).
-laterite-ags4-core = { version = "0.13.1", default-features = false }
+# core 0.15 floor: the span-backed read door (niko86/laterite#900/#902) — the
+# owned `rows` field is gone and the group LENDS cells through positional
+# accessors (`cell`/`row_cells`: `Some("")` for a short row's tail, trimmed on
+# read), the engine's measured perf work on exactly this reader's hot path.
+# Everything the previous 0.13.1 floor named (the cert's `defines`, the
+# `effective_dict` re-export, `group_row_ids_effective` — #41,
+# niko86/laterite#815) rides along. Moving here also re-unifies parse at one
+# 0.12 copy beside reference 0.13.1 — the split the one-copy CI gate refuses.
+laterite-ags4-core = { version = "0.15.0", default-features = false }
 laterite-ags4-types = "0.12.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
@@ -75,7 +78,7 @@ laterite-ags4-types = "0.12.0"
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
 # Held level with core's own reference minor so the workspace resolves ONE copy
 # (a split would compile two dictionaries into the binary).
-laterite-ags4-reference = "0.13.0"
+laterite-ags4-reference = "0.13.1"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so

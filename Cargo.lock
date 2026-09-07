@@ -762,9 +762,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-core"
-version = "0.13.2"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "091850ed011d5db3741d0d36b63408b5e17627b87a34de503ef90c41a416750a"
+checksum = "a96674c2af1e6d4ac39e846ea90222bb36b1e5321265a14211e747940a9140a1"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
