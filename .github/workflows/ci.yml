@@ -154,10 +154,15 @@ jobs:
       # The emcc that links the staticlib archive into an emscripten SIDE_MODULE.
       # Pinned to the version extension-ci-tools' wasm job pins, so what CI links
       # is what the community build links.
+      #
+      # No `actions-cache-folder`: the action's cache-save races its own key
+      # (`Unable to reserve cache with key 3.1.71-linux-x64-master`) and fails the
+      # STEP, not just the save — a failure mode with nothing to do with what this
+      # job gates. The download it replaces takes ~25s, so the cache was never
+      # buying much.
       - uses: emscripten-core/setup-emsdk@d233ac12b0102f74ca199f5dad7a4e2c13a8a745 # v13
         with:
           version: 3.1.71
-          actions-cache-folder: emsdk-cache
 
       # 1.86.0, not `stable` — the exact toolchain extension-ci-tools' wasm job
       # pins, so this gates the artifact the release matrix actually produces.
