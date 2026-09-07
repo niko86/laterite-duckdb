@@ -229,11 +229,14 @@ GROUP BY l.loca_id;
 
 ## In the browser (DuckDB-WASM)
 
-The path readers use DuckDB's virtual filesystem, which depends on an unstable C
-API revision DuckDB-WASM doesn't yet match — so the **WASM build ships a stable
-subset**: `read_ags_text` + `ags_dictionary` + `ags_relationships`. Your app
-already holds the AGS bytes (an upload or fetch), so you hand the text in as a
-bound parameter:
+The WASM build registers the **same surface as native** — all nine functions —
+and `test/wasm/` holds it there on every change: CI LOADs the built
+`.duckdb_extension.wasm` into `@duckdb/duckdb-wasm` and asserts the values and
+column types that come back (see [test/wasm/README.md](test/wasm/README.md)).
+
+`read_ags_text` is the natural entry point in a browser: your app already holds
+the AGS bytes (an upload or a fetch), so you hand the text in as a bound
+parameter and no filesystem is involved at all:
 
 ```js
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm/+esm';
@@ -253,10 +256,15 @@ console.table(result.toArray().map(r => r.toJSON()));   // born-typed — loca_g
 await stmt.close();
 ```
 
+`read_ags` works in the browser too, against whatever the host runtime hands
+DuckDB: a file registered with `db.registerFileBuffer(name, bytes)` is the
+browser's equivalent of a path, and the gate asserts it returns the same
+born-typed rows as `read_ags_text`. `http(s)://` and `s3://` reads go through
+DuckDB-WASM's own HTTP layer and are not measured here.
+
 `read_ags_text` works on native too (handy when AGS content is already in memory).
 The content must be a literal or bound parameter — DuckDB doesn't allow a subquery
-such as `read_text(...)` as a table-function argument. The path/remote readers
-return on WASM once its engine catches up to native.
+such as `read_text(...)` as a table-function argument.
 
 ## How the keys join by construction
 
@@ -278,12 +286,13 @@ cd laterite-duckdb
 make configure      # one-time: build env + test DuckDB (writes a venv under configure/)
 make release        # build the loadable extension
 make test           # run the sqllogictests
+make test_wasm      # build the wasm variants and run the functional gate against them
 ```
 
 The binary is built for one specific DuckDB version — the C extension API it uses for
 filesystem access pins it, so a build is not portable across DuckDB releases.
 community-extensions builds one per supported release, so `INSTALL ... FROM community`
-fetches the matching one. Built and tested against DuckDB 1.5.4.
+fetches the matching one. Built and tested against DuckDB 1.5.5.
 
 ## License
 
