@@ -124,3 +124,90 @@ jobs:
 
       - name: cargo test (unit + in-process e2e self-skip)
         run: cargo test
+
+  # --- the wasm FUNCTIONAL gate (#29) --------------------------------------
+  # A SEPARATE job, deliberately parallel to build-test rather than chained
+  # behind it: the emscripten toolchain build is the heavy half of this
+  # workflow, and it shares nothing with the native one (different rustc, a
+  # different cargo target dir, its own emsdk). Serialising them would add the
+  # wasm wall-clock to every native failure for no extra signal.
+  #
+  # It mirrors the steps extension-ci-tools' own wasm job uses
+  # (`extension-ci-tools/.github/workflows/_extension_distribution.yml`) —
+  # setup-emsdk at the version that image pins, rustc 1.86.0 (the community wasm
+  # image's toolchain, and the reason this extension builds for wasm at all: see
+  # description.yml), then ci-tools' `make wasm_*` targets — rather than
+  # hand-rolling an emscripten setup that would drift from the release build.
+  #
+  # Only ci.yml carries this. release.yml tests the RELEASE artifact because it
+  # differs from ci.yml's debug one; the wasm targets are always release builds,
+  # so a tag adds no information this job hasn't already given for the same
+  # commit (the branch ruleset means every main commit came through a PR here).
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          submodules: recursive
+
+      # The emcc that links the staticlib archive into an emscripten SIDE_MODULE.
+      # Pinned to the version extension-ci-tools' wasm job pins, so what CI links
+      # is what the community build links.
+      - uses: emscripten-core/setup-emsdk@d233ac12b0102f74ca199f5dad7a4e2c13a8a745 # v13
+        with:
+          version: 3.1.71
+          actions-cache-folder: emsdk-cache
+
+      # 1.86.0, not `stable` — the exact toolchain extension-ci-tools' wasm job
+      # pins, so this gates the artifact the release matrix actually produces.
+      # A newer rustc here would gate a DIFFERENT binary and hide real breakage,
+      # in both directions:
+      #   - forward: 1.86 predates let-chains (stable in 1.88). One `if let … &&`
+      #     in src/cert.rs made every wasm variant fail to compile in the release
+      #     matrix while everything in this repo stayed green — found only by
+      #     building at this pin (#29).
+      #   - backward: 1.87 moved wasm32-unknown-emscripten to native wasm
+      #     exceptions, so a modern rustc emits no `invoke_*` trampolines at all
+      #     and cannot surface an emscripten ABI mismatch that 1.86 would hit.
+      # The emsdk pin above is the other half of the same pairing.
+      - name: Install Rust toolchain (wasm)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.86.0
+          targets: wasm32-unknown-emscripten
+
+      # Separate cache scope from build-test: this compiles the whole dependency
+      # tree for wasm32-unknown-emscripten, which shares no artifacts with the
+      # native target. rust-cache keys per job, so the two never collide.
+      - name: Rust dependency cache (wasm)
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasm32-unknown-emscripten
+          cache-on-failure: true
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: test/wasm/package-lock.json
+
+      # `make wasm_*` = extension-ci-tools' own targets (configure → cargo build
+      # for wasm32-unknown-emscripten → emcc SIDE_MODULE link → metadata footer).
+      # mvp and eh share one cargo build, so the second is a link + stamp.
+      - name: make wasm_mvp
+        run: make wasm_mvp
+      - name: make wasm_eh
+        run: make wasm_eh
+
+      - name: install the duckdb-wasm harness
+        working-directory: test/wasm
+        run: npm ci
+
+      # The gate itself: LOAD the artifact just built into @duckdb/duckdb-wasm
+      # and assert the returned VALUES AND COLUMN TYPES. "It compiles for wasm"
+      # was already checked; this is "it works in wasm".
+      - name: wasm functional gate (wasm_mvp)
+        run: node test/wasm/gate.mjs wasm_mvp
+      - name: wasm functional gate (wasm_eh)
+        run: node test/wasm/gate.mjs wasm_eh

@@ -10,11 +10,15 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # wrong dylib (`lib.dylib`).
 EXTENSION_NAME=laterite_ags4
 
-# Native-only. The path/remote readers use DuckDB's filesystem (the VFS) = the
-# version-exact (unstable) C API, so the binary is pinned to one DuckDB version and
-# rebuilt per release. DuckDB-WASM lags this ABI and is excluded (see
-# description.yml's `excluded_platforms`); browser SQL-over-AGS is served by the
-# dedicated `laterite-ags4-wasm` package instead.
+# The path/remote readers use DuckDB's filesystem (the VFS) = the version-exact
+# (unstable) C API, so the binary is pinned to one DuckDB version and rebuilt per
+# release. That pin is what makes the wasm gate's npm version check load-bearing
+# (test/wasm/README.md): the @duckdb/duckdb-wasm release it loads into must embed
+# exactly TARGET_DUCKDB_VERSION.
+#
+# This is NOT a wasm exclusion — that note predated the wasm build. description.yml
+# excludes only linux_amd64_musl, all three wasm variants ship, and `make test_wasm`
+# measures the VFS reader working in wasm against a host-registered file.
 USE_UNSTABLE_C_API=1
 # The HOST DuckDB version the metadata footer is stamped for — must match the
 # DuckDB the extension is LOADED into (the community build matrix + the
@@ -61,3 +65,33 @@ ifneq ($(DUCKDB_WASM_PLATFORM),)
 link_wasm_release: build_extension_library_release
 link_wasm_debug:   build_extension_library_debug
 endif
+
+# --- WASM functional gate --------------------------------------------------
+# The wasm counterpart of `make test_debug` (#29). `make wasm_mvp` only proves
+# the artifact COMPILES; these targets LOAD it into @duckdb/duckdb-wasm in
+# headless node and run real SQL against it — read_ags_text born-typing, the
+# `_parent_id`/`_id` join, `_content_hash` parity with the native/wheel output,
+# `read_ags` through the host VFS, and the metadata surface. See test/wasm/.
+#
+# The npm pin in test/wasm/package.json is load-bearing: under
+# USE_UNSTABLE_C_API=1 the artifact is stamped for ONE DuckDB version and the
+# loader rejects any other, so the @duckdb/duckdb-wasm release must embed
+# exactly TARGET_DUCKDB_VERSION. The gate asserts that first and says so.
+#
+# Note both variants leave configure/platform.txt holding a wasm platform (the
+# extension-ci-tools `wasm_*` targets rewrite it) — run `make configure` again
+# before a native build.
+.PHONY: test_wasm test_wasm_mvp test_wasm_eh wasm_gate_install
+wasm_gate_install: test/wasm/node_modules
+
+test/wasm/node_modules: test/wasm/package-lock.json
+	cd test/wasm && npm ci
+	@touch test/wasm/node_modules
+
+test_wasm_mvp: wasm_mvp wasm_gate_install
+	node test/wasm/gate.mjs wasm_mvp
+
+test_wasm_eh: wasm_eh wasm_gate_install
+	node test/wasm/gate.mjs wasm_eh
+
+test_wasm: test_wasm_mvp test_wasm_eh

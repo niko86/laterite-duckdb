@@ -1,0 +1,14 @@
+{
+  "name": "laterite-ags4-wasm-gate",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless duckdb-wasm harness that LOADs the built wasm artifact and runs real SQL against it (issue #29).",
+  "license": "MIT",
+  "scripts": {
+    "gate": "node gate.mjs"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.33.1-dev64.0"
+  }
+}

@@ -18,3 +18,6 @@ __pycache__/
 
 # macOS finder junk
 .DS_Store
+
+# The wasm functional gate installs @duckdb/duckdb-wasm here (~160 MB).
+test/wasm/node_modules/

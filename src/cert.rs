@@ -137,8 +137,15 @@ fn file_dict_declaring(
     group: &str,
     fetch: impl FnOnce((u64, u64)) -> Option<AgsGroup>,
 ) -> Option<FileDict> {
-    if let Some(defines) = &sidecar.defines
-        && !defines.iter().any(|g| g == group)
+    // `is_some_and`, not a `let`-chain: let-chains stabilised in Rust 1.88, and
+    // the community-extensions wasm image builds this crate on 1.86 — the one
+    // here made every wasm variant fail to compile in the release matrix while
+    // every check in this repo stayed green (found by the wasm gate, #29). The
+    // `wasm` CI job pins 1.86.0 for exactly this reason; keep the crate inside it.
+    if sidecar
+        .defines
+        .as_ref()
+        .is_some_and(|defines| !defines.iter().any(|g| g == group))
     {
         return None;
     }

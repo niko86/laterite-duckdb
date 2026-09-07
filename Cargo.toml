@@ -19,7 +19,12 @@ name = "laterite-duckdb"
 version = "0.11.0"
 edition = "2024"
 rust-version = "1.85"      # duckdb-rs (1.10503.1) MSRV = 1.85.1; the community
-                           # wasm image ships rustc 1.86, so no 1.87 pin.
+                           # wasm image ships rustc 1.86, so no 1.87 pin. This
+                           # is a real floor, not a wish: 1.86 predates
+                           # let-chains, and one `if let … &&` in src/cert.rs
+                           # made every wasm variant fail to compile in the
+                           # release matrix. ci.yml's `wasm` job builds at
+                           # 1.86.0 so the next one goes red here instead.
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
 license = "MIT"
 publish = false
