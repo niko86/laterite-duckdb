@@ -83,7 +83,7 @@ laterite-ags4-types = "0.12.0"
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
 # Held level with core's own reference minor so the workspace resolves ONE copy
 # (a split would compile two dictionaries into the binary).
-laterite-ags4-reference = "0.13.1"
+laterite-ags4-reference = "0.15.0"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
