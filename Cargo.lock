@@ -768,7 +768,7 @@ checksum = "a96674c2af1e6d4ac39e846ea90222bb36b1e5321265a14211e747940a9140a1"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
- "laterite-ags4-types",
+ "laterite-ags4-types 0.12.0",
  "serde",
  "serde_json",
  "sha2",
@@ -794,7 +794,7 @@ checksum = "51ebc8f48f518c03ca2d9c39e3e3764dc3611814fda4af1265fcea0fd0a0f191"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
- "laterite-ags4-types",
+ "laterite-ags4-types 0.12.0",
  "phf",
  "phf_codegen",
  "serde",
@@ -815,6 +815,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "laterite-ags4-types"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b75ead5e9aa475f743bf167a67efe07adae91ef7607391fcf87e270f2ef528f"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "laterite-duckdb"
 version = "0.11.0"
 dependencies = [
@@ -822,7 +833,7 @@ dependencies = [
  "encoding_rs",
  "laterite-ags4-core",
  "laterite-ags4-reference",
- "laterite-ags4-types",
+ "laterite-ags4-types 0.14.0",
  "libduckdb-sys",
  "serde_json",
 ]
