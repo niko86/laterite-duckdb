@@ -75,7 +75,7 @@ path = "src/wasm_lib.rs"
 # `effective_dict` re-export, `group_row_ids_effective` — #41,
 # niko86/laterite#815) rides along. Moving here also re-unifies parse at one
 # 0.12 copy beside reference 0.13.1 — the split the one-copy CI gate refuses.
-laterite-ags4-core = { version = "0.15.0", default-features = false }
+laterite-ags4-core = { version = "0.17.0", default-features = false }
 laterite-ags4-types = "0.12.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
