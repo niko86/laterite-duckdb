@@ -292,7 +292,7 @@ make test_wasm      # build the wasm variants and run the functional gate agains
 The binary is built for one specific DuckDB version — the C extension API it uses for
 filesystem access pins it, so a build is not portable across DuckDB releases.
 community-extensions builds one per supported release, so `INSTALL ... FROM community`
-fetches the matching one. Built and tested against DuckDB 1.5.5.
+fetches the matching one. Built and tested against DuckDB 1.5.6.
 
 ## License
 

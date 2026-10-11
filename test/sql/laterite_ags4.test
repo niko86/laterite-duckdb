@@ -103,9 +103,11 @@ SELECT count(*) FROM ags_rules();
 ----
 27
 
-# Rule 8 (numeric reformat) is an error-severity, fixable rule.
+# Rule 8 (numeric reformat) is a fixable rule. Its severity is 'mixed' since
+# reference 0.16: its findings are errors, plus an FYI advisory naming a standard
+# heading declared with a non-dictionary TYPE (O-59), so it emits two severities.
 query I
-SELECT count(*) FROM ags_rules() WHERE rule = '8' AND severity = 'error' AND fixable;
+SELECT count(*) FROM ags_rules() WHERE rule = '8' AND severity = 'mixed' AND fixable;
 ----
 1
 

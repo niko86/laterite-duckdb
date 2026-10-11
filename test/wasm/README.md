@@ -49,7 +49,7 @@ await db.instantiate(() => {});
 console.log(d.PACKAGE_VERSION, "=>", db.connect().query("SELECT version()").toArray()[0].toJSON());'
 ```
 
-At the time of writing, `1.33.1-dev64.0` (npm's `next`) carries DuckDB v1.5.5
+At the time of writing, `1.33.1-dev65.0` (npm's `next`) carries DuckDB v1.5.6
 while `latest` (`1.33.1-dev57.0`) still carries v1.5.4 — which is why the pin is
 exact and deliberately not tracked by Dependabot. Moving `TARGET_DUCKDB_VERSION`
 means moving this pin in the same change.

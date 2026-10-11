@@ -22,12 +22,19 @@ EXTENSION_NAME=laterite_ags4
 USE_UNSTABLE_C_API=1
 # The HOST DuckDB version the metadata footer is stamped for — must match the
 # DuckDB the extension is LOADED into (the community build matrix + the
-# sqllogictest venv are 1.5.5), NOT the C-API line the crate is built against.
-# duckdb-rs 1.10505.0 compiles against the 1.5.5 C-API and the host is 1.5.5, so
-# the cdylib is stamped v1.5.5. The stamped version must EQUAL the host's or the
+# sqllogictest venv are 1.5.6), NOT the C-API line the crate is built against.
+# duckdb-rs 1.10506.0 compiles against the 1.5.6 C-API and the host is 1.5.6, so
+# the cdylib is stamped v1.5.6. The stamped version must EQUAL the host's or the
 # loader rejects it: the venv shipped v1.5.5 while this stayed v1.5.4, and the
 # 1.5.5 sqllogictest host rejected the v1.5.4-stamped load with a version mismatch.
-TARGET_DUCKDB_VERSION=v1.5.5
+TARGET_DUCKDB_VERSION=v1.5.6
+# The sqllogictest host's DuckDB, derived from the stamp above so the two cannot
+# disagree. Left blank, base.Makefile's `venv` pip-installs whatever PyPI calls
+# latest, so the host moved the day PyPI did rather than the day this file did:
+# PyPI shipped 1.5.6 while the cdylib was still stamped v1.5.5, and every PR went
+# red on the version-mismatch load with nothing in the PR to blame. `?=` so a
+# caller that sets it on purpose (an env override, the community matrix) still wins.
+DUCKDB_TEST_VERSION?=$(patsubst v%,%,$(TARGET_DUCKDB_VERSION))
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
