@@ -167,19 +167,21 @@ fn build_table(
     columns.push(("_id", ColType::Varchar));
     columns.push(("_parent_id", ColType::Varchar));
 
-    // Per-heading (name, ags_type, emit-kind), aligned with the TYPE row. A
+    // Per-heading (name, ags_type, unit, emit-kind), aligned with the TYPE row. A
     // heading past the end of the TYPE row (a short TYPE line) defaults to `X`
-    // (free text → VARCHAR), matching the whole-file reader.
-    let mut plan: Vec<(String, String, Emit)> = Vec::with_capacity(ags.headings().len());
+    // (free text → VARCHAR), matching the whole-file reader. The UNIT rides
+    // along because a `DT` heading's UNIT decides how its cells parse.
+    let mut plan: Vec<(String, String, String, Emit)> = Vec::with_capacity(ags.headings().len());
     for (i, heading) in ags.headings().iter().enumerate() {
         let ags_type = ags
             .types()
             .get(i)
             .cloned()
             .unwrap_or_else(|| "X".to_string());
+        let unit = ags.units().get(i).cloned().unwrap_or_default();
         let kind = Emit::of(&ags_type);
         columns.push((intern(heading), kind.col_type()));
-        plan.push((heading.clone(), ags_type, kind));
+        plan.push((heading.clone(), ags_type, unit, kind));
     }
 
     // `_content_hash` (trailing): the typed, blank- and unit-aware VALUE
@@ -238,8 +240,8 @@ fn build_table(
             }
             // `plan` is built from `headings()` in order, so the plan index IS
             // the column index — positional access, no name lookup per cell.
-            for (c, (_heading, ags_type, kind)) in plan.iter().enumerate() {
-                cells.push(cell_for(ags.cell(r, c), ags_type, *kind));
+            for (c, (_heading, ags_type, unit, kind)) in plan.iter().enumerate() {
+                cells.push(cell_for(ags.cell(r, c), ags_type, unit, *kind));
             }
             // Trailing `_content_hash` — see the column note above. Built from the
             // file's own UNIT + TYPE rows (per-file canonicalisation), exactly the

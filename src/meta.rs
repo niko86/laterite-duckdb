@@ -10,7 +10,7 @@
 
 use laterite_ags4_core::effective_dict::{FileDict, file_dict_of};
 use laterite_ags4_core::registry::registry;
-use laterite_ags4_types::sql_type;
+use laterite_ags4_types::sql_type_for_unit;
 use libduckdb_sys as ffi;
 
 use super::ffi_table::{Bind, Cell, ColType, register_table};
@@ -94,6 +94,8 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
                 // rows; a shorter-than-headings row falls back to empty.
                 let ags_type = g.types().get(i).cloned().unwrap_or_default();
                 let unit = g.units().get(i).cloned().unwrap_or_default();
+                // The UNIT decides a DT column's type: a time of day is TIME.
+                let sql = sql_type_for_unit(&ags_type, &unit);
                 // Status from the effective dictionary: the registry where it
                 // answers, else the file's own DICT_STAT declaration (Rule 18
                 // — this is where a declared custom group's KEY headings come
@@ -121,7 +123,7 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
                         Cell::Str(unit)
                     },
                     Cell::Str(ags_type.clone()),
-                    Cell::Str(sql_type(&ags_type).to_string()),
+                    Cell::Str(sql.to_string()),
                     Cell::Str(status),
                     Cell::Bool(is_key),
                     Cell::Int(i as i64),

@@ -67,12 +67,7 @@ BY_DESIGN = {
 }
 
 # Known divergences, not by design. Each must still diverge or the run fails.
-KNOWN_DIVERGENCES = {
-    "dt-time-of-day-unit": (
-        "a DT column with a time-of-day UNIT: laterite reads a TIME, the extension "
-        "parses without the UNIT and returns NULL, and ags_headings says TIMESTAMP"
-    ),
-}
+KNOWN_DIVERGENCES = {}
 
 
 class Fail(Exception):
@@ -290,16 +285,6 @@ def file_dict(ags: Any) -> tuple[dict, dict]:
     return parents, statuses
 
 
-def time_of_day_columns(ags: Any, group: str) -> set[str]:
-    df = ags.table(group, keys=True)
-    types = ags.types(group)
-    return {
-        h
-        for h, t in zip(ags.headings(group), types)
-        if t == "DT" and polars_sql(df.schema[h]) == "TIME"
-    }
-
-
 def compare_read(run: Run, s: Surfaces, fixture: str, ags: Any, fn: str) -> None:
     run.compared.add(fn)
     if fn == "read_ags":
@@ -314,7 +299,6 @@ def compare_read(run: Run, s: Surfaces, fixture: str, ags: Any, fn: str) -> None
         if cols != df.columns:
             run.diff(fn, where, "columns", cols, df.columns)
             continue
-        tod = time_of_day_columns(ags, g)
         for i, (c, et) in enumerate(zip(cols, types)):
             lt = polars_sql(df.schema[c])
             if lt in TEMPORAL and et == "VARCHAR":
@@ -329,9 +313,6 @@ def compare_read(run: Run, s: Surfaces, fixture: str, ags: Any, fn: str) -> None
             for n, (ev, lv) in enumerate(zip((r[i] for r in rows), lat_vals)):
                 same = temporal_equal(ev, lv) if lt in TEMPORAL else ev == lv
                 if same:
-                    continue
-                if c in tod and ev is None and lv is not None:
-                    run.known("dt-time-of-day-unit")
                     continue
                 run.diff(fn, where, f"{c} row {n}", ev, lv)
 
@@ -370,10 +351,8 @@ def compare_headings(run: Run, s: Surfaces, fixture: str, ags: Any) -> None:
     _, _, rows = s.rows("SELECT * FROM ags_headings(?)", [fixture])
     _, declared = file_dict(ags)
     want = []
-    tod = {}
     for g in ags.groups:
         df = ags.table(g, keys=True)
-        tod[g] = time_of_day_columns(ags, g)
         reg = {h.name: h for h in GROUPS[g].headings} if g in GROUPS else {}
         heads = ags.headings(g)
         units, types = ags.units(g), ags.types(g)
@@ -401,13 +380,6 @@ def compare_headings(run: Run, s: Surfaces, fixture: str, ags: Any) -> None:
     names = ("unit", "ags_type", "sql_type", "status", "is_key", "ordinal")
     for r, w in zip(rows, want):
         for name, ev, lv in zip(names, r[2:], w[2:]):
-            if (
-                name == "sql_type"
-                and r[1] in tod[r[0]]
-                and (ev, lv) == ("TIMESTAMP", "TIME")
-            ):
-                run.known("dt-time-of-day-unit")
-                continue
             if ev != lv:
                 run.diff("ags_headings", f"{fixture} {r[0]}.{r[1]}", name, ev, lv)
 
