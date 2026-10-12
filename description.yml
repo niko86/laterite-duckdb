@@ -16,10 +16,12 @@ extension:
   # filesystem; browser SQL-over-AGS is also served by the dedicated
   # `laterite-ags4-wasm` package.
   #
-  # wasm_threads is excluded (#50): it links, but does not LOAD. The C-API link
-  # gives it a non-shared memory, which duckdb-wasm's threads runtime (shared
-  # memory) refuses, and a pthreads build needs +atomics std, i.e. nightly
-  # build-std, not stable Rust. linux_amd64_musl stays excluded (untested).
+  # wasm_threads is excluded (#50): it links, but does not LOAD. Every
+  # wasm_threads extension build gets a non-shared memory (DuckDB's own core
+  # extensions too; duckdb/extension-ci-tools#391), which duckdb-wasm's threads
+  # runtime (shared memory) refuses. For this Rust extension a fix would also
+  # need +atomics std, i.e. nightly build-std, not stable Rust.
+  # linux_amd64_musl stays excluded (untested).
   excluded_platforms: "linux_amd64_musl;wasm_threads"
   requires_toolchains: "rust"
   maintainers:

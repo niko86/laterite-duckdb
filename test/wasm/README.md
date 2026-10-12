@@ -53,7 +53,8 @@ pthread workers, browser-only), and that runtime refuses this extension's
 artifact: `LinkError … "env" "memory": mismatch in shared state of memory`
 ([#50](https://github.com/niko86/laterite-duckdb/issues/50)). extension-ci-tools
 links every wasm variant with the same flags, so the side module declares a
-non-shared memory. Linking with `-pthread` is refused unless the Rust objects
+non-shared memory — DuckDB's own core extensions included
+([duckdb/extension-ci-tools#391](https://github.com/duckdb/extension-ci-tools/issues/391)). Linking with `-pthread` is refused unless the Rust objects
 are built with `+atomics,+bulk-memory`, which needs nightly `build-std`.
 `description.yml` therefore excludes it. The harness's threads mode
 (`make test_wasm_threads`, the default platform of `browser-gate.mjs`) is kept
