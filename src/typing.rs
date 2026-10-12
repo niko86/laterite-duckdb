@@ -13,7 +13,9 @@
 //! canonical-string → epoch-unit conversion is deferred so the flagship
 //! (born-typed numerics) stays unambiguous.
 
-use laterite_ags4_types::{CanonicalType, canonical_type, parse_value};
+use laterite_ags4_types::{
+    CanonicalType, canonical_type, is_time_of_day_unit, parse_time, parse_value,
+};
 
 use super::ffi_table::{Cell, ColType};
 
@@ -55,7 +57,18 @@ impl Emit {
 /// empty/unparseable) becomes `Cell::Null` — the born-typed behaviour
 /// `laterite.read` gives (a non-conforming numeric cell is NULL, never an
 /// error).
-pub fn cell_for(raw: Option<&str>, ags_type: &str, kind: Emit) -> Cell {
+///
+/// One exception, taken from the engine rather than re-derived: a `DT` heading
+/// whose UNIT is a time of day (`hh:mm`, `hh:mm:ss`) holds a time with no date,
+/// so it is read the way `build_column_for_unit` reads it — `parse_time`, not
+/// the datetime parser, which rejects a bare time and would lose the cell. The
+/// canonical string is the time alone, as `ags_headings` reports `TIME` for it.
+pub fn cell_for(raw: Option<&str>, ags_type: &str, unit: &str, kind: Emit) -> Cell {
+    if canonical_type(ags_type) == Some(CanonicalType::Datetime) && is_time_of_day_unit(unit) {
+        return raw.and_then(parse_time).map_or(Cell::Null, |t| {
+            Cell::Str(t.format("%H:%M:%S%.f").to_string())
+        });
+    }
     let value = parse_value(raw, ags_type);
     if value.is_null() {
         return Cell::Null;

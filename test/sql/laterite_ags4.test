@@ -379,3 +379,29 @@ query I
 SELECT count(*) FROM ags_headings('test/sql/mini.ags') WHERE is_key AND "group" = 'PROJ';
 ----
 1
+
+# ---- a DT column whose UNIT is a time of day holds a time ----
+# laterite reads it as a time (the engine's build_column_for_unit). The cell
+# must not parse as a datetime, which rejects a bare time and returns NULL,
+# and ags_headings must report TIME, not TIMESTAMP. The column itself stays
+# VARCHAR, like every temporal column read_ags returns.
+query T
+SELECT XTYP_TOD FROM read_ags('test/parity/types.ags', 'XTYP') ORDER BY XTYP_ID;
+----
+09:15:30
+23:59:59
+NULL
+NULL
+
+query TT
+SELECT heading, sql_type FROM ags_headings('test/parity/types.ags')
+WHERE "group" = 'XTYP' AND heading IN ('XTYP_WHEN', 'XTYP_TOD') ORDER BY ordinal;
+----
+XTYP_WHEN	TIMESTAMP
+XTYP_TOD	TIME
+
+query TT
+SELECT PROJ_HM, PROJ_MS FROM read_ags_text(E'"GROUP","PROJ"\r\n"HEADING","PROJ_ID","PROJ_HM","PROJ_MS"\r\n"UNIT","","hh:mm","hh:mm:ss.sss"\r\n"TYPE","ID","DT","DT"\r\n"DATA","P1","09:15","09:15:30.250"\r\n', 'PROJ');
+----
+09:15:00
+09:15:30.250
