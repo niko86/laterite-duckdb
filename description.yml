@@ -5,7 +5,7 @@ extension:
   language: Rust
   build: cargo
   license: MIT
-  # wasm is BUILT for all three variants (wasm_mvp / wasm_eh / wasm_threads). The
+  # wasm is BUILT for wasm_mvp and wasm_eh (wasm_threads is excluded, below). The
   # C-API extension (official duckdb-rs crate) compiles to a
   # wasm32-unknown-emscripten staticlib example (src/wasm_lib.rs) that
   # extension-ci-tools emcc-links as an emscripten SIDE_MODULE. Building on the
@@ -16,10 +16,11 @@ extension:
   # filesystem; browser SQL-over-AGS is also served by the dedicated
   # `laterite-ags4-wasm` package.
   #
-  # wasm_threads is enabled now the bulk-memory-opt blocker is gone on every
-  # variant (mvp + eh landed in the initial 0.7.0 cut; threads links clean on the
-  # same duckdb-crate path). linux_amd64_musl stays excluded (untested).
-  excluded_platforms: "linux_amd64_musl"
+  # wasm_threads is excluded (#50): it links, but does not LOAD. The C-API link
+  # gives it a non-shared memory, which duckdb-wasm's threads runtime (shared
+  # memory) refuses, and a pthreads build needs +atomics std, i.e. nightly
+  # build-std, not stable Rust. linux_amd64_musl stays excluded (untested).
+  excluded_platforms: "linux_amd64_musl;wasm_threads"
   requires_toolchains: "rust"
   maintainers:
     - niko86

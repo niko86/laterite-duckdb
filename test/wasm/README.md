@@ -23,31 +23,41 @@ node test/wasm/gate.mjs wasm_eh    # re-run against an already-built artifact
 The assertions themselves live in `checks.mjs`; `gate.mjs` and
 `browser-gate.mjs` only differ in how a query reaches DuckDB.
 
-## `wasm_threads`: the browser gate
+## The browser gate
 
-`wasm_threads` maps to duckdb-wasm's `coi` runtime, which needs
-`SharedArrayBuffer` and pthread workers and ships no node bundle
-([#50](https://github.com/niko86/laterite-duckdb/issues/50)). `browser-gate.mjs`
-serves a page with `Cross-Origin-Opener-Policy: same-origin` and
+`browser-gate.mjs` runs the same checks in a real browser. It serves a page with
+`Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`, drives it with Playwright's
 Chromium, LOADs the artifact from a same-origin extension repository and runs
 `checks.mjs`. It adds one source the node gate cannot reach: `read_ags` over an
-http URL registered with `registerFileURL`.
+http URL registered with `registerFileURL`. CI runs it on `wasm_eh`.
 
 ```sh
 cd test/wasm && npx playwright install chromium-headless-shell   # once
-make test_wasm_threads
-node test/wasm/browser-gate.mjs --control-only    # isolation + plain SQL, no artifact
-node test/wasm/browser-gate.mjs wasm_eh           # same page on the eh bundle
+make test_wasm_browser                            # build wasm_eh, gate it in Chromium
+node test/wasm/browser-gate.mjs wasm_eh --control-only   # isolation + plain SQL, no artifact
 ```
 
 A positive control runs first and stops the gate if it fails: the page must
-report `crossOriginIsolated === true`, and the coi bundle must run plain SQL and
-report the `wasm_threads` platform before the extension is touched. The bundle is
-named explicitly rather than picked by `selectBundle()`, which would fall back to
-eh/mvp without isolation and gate nothing. `--no-coi` serves the page without the
-headers and `--artifact <file>` LOADs a different file; both are for showing the
-gate goes red.
+report `crossOriginIsolated === true`, and the bundle must run plain SQL and
+report the expected platform before the extension is touched. The bundle is
+named explicitly rather than picked by `selectBundle()`, which would fall back
+from coi to eh/mvp without isolation and gate nothing. `--no-coi` serves the page
+without the headers and `--artifact <file>` LOADs a different file; both are for
+showing the gate goes red.
+
+### `wasm_threads` is not published
+
+`wasm_threads` maps to duckdb-wasm's `coi` runtime (`SharedArrayBuffer` plus
+pthread workers, browser-only), and that runtime refuses this extension's
+artifact: `LinkError … "env" "memory": mismatch in shared state of memory`
+([#50](https://github.com/niko86/laterite-duckdb/issues/50)). extension-ci-tools
+links every wasm variant with the same flags, so the side module declares a
+non-shared memory. Linking with `-pthread` is refused unless the Rust objects
+are built with `+atomics,+bulk-memory`, which needs nightly `build-std`.
+`description.yml` therefore excludes it. The harness's threads mode
+(`make test_wasm_threads`, the default platform of `browser-gate.mjs`) is kept
+for when a loadable threads build exists. CI does not run it.
 
 ## The version pin is load-bearing
 
@@ -125,8 +135,8 @@ build.
 
 ## What this does not cover
 
-- **Browsers other than Chromium.** Only `wasm_threads` runs in a browser, and
-  only in Chromium.
+- **Browsers other than Chromium.** Only `wasm_eh` runs in a browser, and only
+  in Chromium.
 - **Direct `http(s)://` / `s3://` paths.** `read_ags` is proven against a
   host-registered buffer, a host filesystem path (node) and an http URL
   registered with `registerFileURL` (Chromium). A bare URL passed to `read_ags`

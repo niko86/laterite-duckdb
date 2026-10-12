@@ -24,7 +24,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PLATFORM = process.argv[2] ?? 'wasm_mvp';
 // duckdb-wasm ships one prebuilt runtime per wasm feature level. `wasm_threads`
 // maps to the `coi` runtime, which needs SharedArrayBuffer + a pthread worker
-// and has no node-blocking bundle — browser-gate.mjs gates it in Chromium.
+// and has no node-blocking bundle. It is not published (#50); browser-gate.mjs
+// keeps a threads mode for when a loadable build exists.
 const BUNDLE = { wasm_mvp: 'mvp', wasm_eh: 'eh' }[PLATFORM];
 if (!BUNDLE) {
     console.error(`gate: unsupported platform '${PLATFORM}' (expected wasm_mvp or wasm_eh)`);

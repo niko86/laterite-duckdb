@@ -1,25 +1,25 @@
-// The wasm functional gate for `wasm_threads` — a real browser (#50).
+// The wasm functional gate in a real browser (#50).
 //
-// `wasm_threads` maps to duckdb-wasm's `coi` runtime: SharedArrayBuffer plus a
-// pthread worker, browser-only (there is no node bundle for it), so gate.mjs
-// cannot reach it. This serves a page with the cross-origin-isolation headers,
-// drives it with Playwright's Chromium, LOADs the artifact from a same-origin
-// extension repository and runs checks.mjs — the SAME assertions the node gate
-// runs for wasm_mvp and wasm_eh.
+// Serves a page with the cross-origin-isolation headers, drives it with
+// Playwright's Chromium, LOADs the artifact from a same-origin extension
+// repository and runs checks.mjs — the SAME assertions the node gate runs. CI
+// runs it on wasm_eh.
+//
+// The default platform is wasm_threads, which maps to duckdb-wasm's `coi`
+// runtime (SharedArrayBuffer + pthread workers, browser-only). That mode is kept
+// for when a loadable threads build exists: today the coi runtime refuses the
+// artifact (non-shared memory), so wasm_threads is not published.
 //
 // A positive control runs first and is fatal: the page must be cross-origin
-// isolated and the coi bundle must run plain SQL as `wasm_threads` before the
-// extension is touched. Without isolation the coi runtime cannot start, and a
-// harness that let duckdb-wasm fall back to eh/mvp would pass while gating
-// nothing.
+// isolated and the bundle must run plain SQL as the expected platform before the
+// extension is touched. Isolation is required for every bundle, so the harness
+// stays honest about coi: a harness that let duckdb-wasm fall back from coi to
+// eh/mvp would pass while gating nothing.
 //
 // Usage: node browser-gate.mjs [wasm_threads|wasm_eh|wasm_mvp] [--control-only] [--no-coi] [--artifact <file>]
-//   wasm_threads is the default and the point; the other two run the same page on
-//   their own bundles, which is how the transport was checked against artifacts
-//   that load.
 //   --control-only  stop after the positive control (no artifact needed)
 //   --no-coi        serve WITHOUT the COOP/COEP headers (fail-first: must go red)
-//   --artifact      LOAD this file instead of build/wasm_threads/... (fail-first)
+//   --artifact      LOAD this file instead of build/<platform>/... (fail-first)
 
 import http from 'node:http';
 import fs from 'node:fs';

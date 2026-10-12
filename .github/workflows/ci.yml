@@ -252,14 +252,18 @@ jobs:
       - name: wasm functional gate (wasm_eh)
         run: node test/wasm/gate.mjs wasm_eh
 
-  # --- the wasm_threads gate (#50) -----------------------------------------
-  # The third published wasm variant. duckdb-wasm runs it on the `coi` runtime
-  # (SharedArrayBuffer + pthread workers), which is browser-only, so this job
-  # drives Chromium against a page served with COOP/COEP and runs the same
-  # assertions as the node gate (test/wasm/checks.mjs). Its own job so a red
-  # here never hides the wasm_mvp/wasm_eh result above. Same emsdk/rustc pins
-  # as the wasm job, for the same reasons.
-  wasm-threads:
+  # --- the browser gate (#50) ----------------------------------------------
+  # The same assertions as the node gate (test/wasm/checks.mjs), run in
+  # Chromium against wasm_eh: a page served with COOP/COEP, driven by
+  # Playwright, plus `read_ags` over registerFileURL. Its own job so a red here
+  # never hides the node result above. Same emsdk/rustc pins as the wasm job.
+  #
+  # wasm_threads is not gated here because it is not published: duckdb-wasm's
+  # threads runtime refuses the artifact (non-shared memory, see
+  # description.yml). The harness's threads mode is kept for when that changes.
+  # The page is still cross-origin isolated and the positive control still
+  # requires it, so bringing threads back is a platform argument, not a rework.
+  wasm-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -289,8 +293,8 @@ jobs:
           cache: npm
           cache-dependency-path: test/wasm/package-lock.json
 
-      - name: make wasm_threads
-        run: make wasm_threads
+      - name: make wasm_eh
+        run: make wasm_eh
 
       - name: install the duckdb-wasm harness
         working-directory: test/wasm
@@ -314,19 +318,10 @@ jobs:
         working-directory: test/wasm
         run: npx playwright install-deps chromium-headless-shell
 
-      # Positive control first, on its own: isolation and plain SQL on the coi
-      # bundle. If this is red, the gate below would be gating nothing.
-      - name: positive control (cross-origin isolated, coi bundle runs SQL)
-        run: node test/wasm/browser-gate.mjs wasm_threads --control-only
-      - name: wasm functional gate (wasm_threads, Chromium)
-        run: node test/wasm/browser-gate.mjs wasm_threads
-
-      # The artifact a red run gated, so it can be LOADed locally
-      # (`node test/wasm/browser-gate.mjs --artifact <file>`).
-      - name: upload the wasm_threads artifact (on failure)
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: laterite_ags4-wasm_threads
-          path: build/wasm_threads/extension/laterite_ags4/laterite_ags4.duckdb_extension.wasm
-          retention-days: 7
+      # Positive control first, on its own: the page is cross-origin isolated
+      # and the eh bundle runs plain SQL. If this is red, the gate below would
+      # be gating nothing.
+      - name: positive control (cross-origin isolated, eh bundle runs SQL)
+        run: node test/wasm/browser-gate.mjs wasm_eh --control-only
+      - name: wasm functional gate (wasm_eh, Chromium)
+        run: node test/wasm/browser-gate.mjs wasm_eh
