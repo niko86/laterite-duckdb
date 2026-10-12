@@ -9,7 +9,7 @@
       "params": ["path", "group"],
       "named_params": ["encoding"],
       "category": "read",
-      "returns": "one group as a typed table — _id, _parent_id, then one column per heading (typed from the file's TYPE row). Reads local / http(s):// / s3://."
+      "returns": "one group as a typed table — _id, _parent_id, then one column per heading (typed from the file's TYPE row; DT columns also follow the UNIT). Reads local / http(s):// / s3://."
     },
     {
       "name": "read_ags_text",
@@ -37,7 +37,7 @@
       "params": [],
       "named_params": ["edition"],
       "category": "dictionary",
-      "returns": "the embedded standard AGS dictionary as a table (group, heading, status, ags_type, unit, description, …)."
+      "returns": "(group, parent, heading, status, ags_type, sql_type, unit, description, ordinal) — the embedded standard AGS dictionary as a table."
     },
     {
       "name": "ags_relationships",
@@ -51,7 +51,7 @@
       "params": [],
       "named_params": [],
       "category": "dictionary",
-      "returns": "the AGS4 numbered-rule catalogue (rule, title, severity, fixable) — the extension lists the rules; the CLI/library run them."
+      "returns": "(rule, title, checks, severity, fixable, observations) — the AGS4 numbered-rule catalogue; the extension lists the rules, the CLI/library run them."
     },
     {
       "name": "load_ags",

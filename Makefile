@@ -70,6 +70,14 @@ test_laterite_parity: check_configure
 	$(PYTHON_VENV_BIN) -m pip install "laterite==$(LATERITE_VERSION)" "duckdb==$(DUCKDB_TEST_VERSION)"
 	$(PYTHON_VENV_BIN) scripts/laterite_parity.py --extension build/debug/$(EXTENSION_NAME).duckdb_extension
 
+# --- function docs gate ----------------------------------------------------
+# functions.json and docs/function_descriptions.csv (DuckDB's community page is
+# built from the csv) state each function's output columns; this DESCRIBEs the
+# debug build and fails on any list that differs. See scripts/check_function_docs.py.
+.PHONY: test_function_docs
+test_function_docs: check_configure
+	$(PYTHON_VENV_BIN) scripts/check_function_docs.py --extension build/debug/$(EXTENSION_NAME).duckdb_extension
+
 # --- WASM link ordering ---------------------------------------------------
 # extension-ci-tools' base.Makefile declares the metadata target as
 #   build_extension_with_metadata_release: check_configure link_wasm_release build_extension_library_release

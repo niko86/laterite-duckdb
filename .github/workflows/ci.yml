@@ -118,6 +118,9 @@ jobs:
       - name: make test (sqllogictest)
         run: make test_debug
 
+      - name: function docs match the real columns
+        run: make test_function_docs
+
       # --- bundled-test work (one libduckdb-sys rebuild, shared) ---
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings
