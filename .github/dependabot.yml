@@ -7,15 +7,16 @@
 # nothing took them (the lock sat one reference patch behind for a week with
 # nobody told). Weekly grouped patch PRs close that gap.
 #
-# MINOR bumps arrive INDIVIDUALLY, on purpose, and differently from the
-# mother repo's grouped minor+patch style: on a 0.x floor a minor is a
-# breaking line (`^0.13` never resolves 0.14), so an engine minor here is an
-# ADOPTION with code behind it, not a version edit — e.g. core 0.14 removed
-# the `AgsGroup.rows` field this reader touches. An individual PR per minor
-# is the visible marker that the engine moved under us; it may legitimately
-# sit open until the adoption is done (the "number tracks laterite, and the
-# extension legitimately lags between releases" convention), and grouping it
-# with patches would drag the always-take lane red behind it.
+# Engine MINOR bumps arrive as ONE grouped PR (`laterite-engine`). On a 0.x
+# floor a minor is a breaking line (`^0.13` never resolves 0.14), and the
+# engine crates require each other at matching minors — core 0.17 needs types
+# 0.14 and reference 0.16 — so a single-crate minor resolves two copies of a
+# leaf and the one-copy lock gate rejects it every time. Individual PRs could
+# never merge; one grouped PR can. It is still an ADOPTION, not a version edit:
+# it may need code behind it and may sit open until the extension's next
+# release, which takes laterite's product number (extension X = laterite X's
+# engine, checked by the laterite-parity job). Patches stay in their own
+# always-take lane so an open adoption never drags them red.
 version: 2
 updates:
   # GitHub Actions used by the workflows.
@@ -37,5 +38,10 @@ updates:
     commit-message:
       prefix: build
     groups:
+      # Listed first: dependabot puts a dependency in the FIRST group it
+      # matches, and engine patches must fall through to cargo-patches.
+      laterite-engine:
+        patterns: ["laterite-ags4-*"]
+        update-types: ["minor", "major"]
       cargo-patches:
         update-types: ["patch"]
