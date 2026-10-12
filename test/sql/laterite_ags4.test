@@ -405,3 +405,24 @@ SELECT PROJ_HM, PROJ_MS FROM read_ags_text(E'"GROUP","PROJ"\r\n"HEADING","PROJ_I
 ----
 09:15:00
 09:15:30.250
+
+# ---- a DT column whose UNIT is a year or a month ----
+# laterite reads each value as the start of the period it names (`2026-03` →
+# 2026-03-01 00:00), and only under its own UNIT: a full date under `yyyy-mm`
+# is a Rule 8 finding and reads as NULL. The datetime parser without the UNIT
+# got both wrong: it lost the period values and kept the full date.
+query TTT
+SELECT XDTU_ID, XDTU_YR, XDTU_YM
+FROM read_ags('test/parity/dt_units.ags', 'XDTU') ORDER BY XDTU_ID;
+----
+D1	2026-01-01 00:00:00	2026-03-01 00:00:00
+D2	1999-01-01 00:00:00	1999-12-01 00:00:00
+D3	NULL	NULL
+D4	NULL	NULL
+
+query TT
+SELECT heading, sql_type FROM ags_headings('test/parity/dt_units.ags')
+WHERE "group" = 'XDTU' AND heading IN ('XDTU_YR', 'XDTU_YM') ORDER BY ordinal;
+----
+XDTU_YR	TIMESTAMP
+XDTU_YM	TIMESTAMP
