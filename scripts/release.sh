@@ -7,7 +7,8 @@
 #   and its community-extensions PR. In one run it:
 #     1. (optional) moves your working changes onto a release branch,
 #     2. runs `cargo test` (aborts the release if it fails),
-#     3. bumps the version in Cargo.toml + description.yml,
+#     3. bumps the version in Cargo.toml, Cargo.lock, description.yml and
+#        functions.json,
 #     4. commits, pushes, and tags this repo,
 #     5. clones your community-extensions fork, syncs the canonical descriptor
 #        into the PR with the real release commit SHA, and pushes it,
@@ -118,13 +119,19 @@ if [[ "$BUMP_VERSION" == 1 ]]; then
   # description.yml shipped a manifest still claiming the PREVIOUS version.
   # `manifest_version_matches_crate` (tests/functions_manifest.rs) gates all
   # three staying in step.
-  say "Setting version = $VERSION  (Cargo.toml + description.yml + functions.json)"
+  say "Setting version = $VERSION  (Cargo.toml + Cargo.lock + description.yml + functions.json)"
   sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" "$EXT_DIR/Cargo.toml"
   sed -i '' "s/^  version: .*/  version: $VERSION/"        "$EXT_DIR/description.yml"
   sed -i '' "s/^  \"version\": \".*\",/  \"version\": \"$VERSION\",/" "$EXT_DIR/functions.json"
+  # Cargo.lock records the crate's own version too, and nothing rewrote it: the
+  # pre-flight cargo test runs BEFORE this bump, so v0.15.0 shipped a lock still
+  # saying 0.11.0. --workspace touches only this crate's entry, never a dependency,
+  # and --offline keeps it from consulting the index at release time.
+  ( cd "$EXT_DIR" && cargo update --workspace --offline )
   grep -nE '^version = '     "$EXT_DIR/Cargo.toml"
   grep -nE '^  version:'     "$EXT_DIR/description.yml"
   grep -nE '^  "version": '  "$EXT_DIR/functions.json"
+  grep -A1 '^name = "laterite-duckdb"' "$EXT_DIR/Cargo.lock" | tail -1
 fi
 
 # --- 4. review + commit -----------------------------------------------------
