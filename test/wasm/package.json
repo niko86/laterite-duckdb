@@ -10,5 +10,9 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.33.1-dev65.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.64.0"
   }
 }

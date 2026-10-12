@@ -17,7 +17,7 @@ EXTENSION_NAME=laterite_ags4
 # exactly TARGET_DUCKDB_VERSION.
 #
 # This is NOT a wasm exclusion — that note predated the wasm build. description.yml
-# excludes only linux_amd64_musl, all three wasm variants ship, and `make test_wasm`
+# excludes linux_amd64_musl and wasm_threads (#50), wasm_mvp + wasm_eh ship, and `make test_wasm`
 # measures the VFS reader working in wasm against a host-registered file.
 USE_UNSTABLE_C_API=1
 # The HOST DuckDB version the metadata footer is stamped for — must match the
@@ -101,7 +101,7 @@ endif
 # Note both variants leave configure/platform.txt holding a wasm platform (the
 # extension-ci-tools `wasm_*` targets rewrite it) — run `make configure` again
 # before a native build.
-.PHONY: test_wasm test_wasm_mvp test_wasm_eh wasm_gate_install
+.PHONY: test_wasm test_wasm_mvp test_wasm_eh test_wasm_browser test_wasm_threads wasm_gate_install
 wasm_gate_install: test/wasm/node_modules
 
 test/wasm/node_modules: test/wasm/package-lock.json
@@ -115,3 +115,13 @@ test_wasm_eh: wasm_eh wasm_gate_install
 	node test/wasm/gate.mjs wasm_eh
 
 test_wasm: test_wasm_mvp test_wasm_eh
+
+# The browser gate (#50): Chromium via Playwright — once: `cd test/wasm && npx
+# playwright install chromium-headless-shell`. CI runs it on wasm_eh. The
+# wasm_threads mode is kept for when a loadable threads build exists: today's
+# artifact is refused by the coi runtime, which is why it is not published.
+test_wasm_browser: wasm_eh wasm_gate_install
+	node test/wasm/browser-gate.mjs wasm_eh
+
+test_wasm_threads: wasm_threads wasm_gate_install
+	node test/wasm/browser-gate.mjs wasm_threads

@@ -232,7 +232,13 @@ GROUP BY l.loca_id;
 The WASM build registers the **same surface as native** — all nine functions —
 and `test/wasm/` holds it there on every change: CI LOADs the built
 `.duckdb_extension.wasm` into `@duckdb/duckdb-wasm` and asserts the values and
-column types that come back (see [test/wasm/README.md](test/wasm/README.md)).
+column types that come back (see [test/wasm/README.md](test/wasm/README.md)) —
+in node for `wasm_mvp` and `wasm_eh`, and in Chromium for `wasm_eh`.
+
+Two variants are published, `wasm_mvp` and `wasm_eh`. `wasm_threads` is not:
+duckdb-wasm's threads runtime refuses the artifact this extension can build
+([#50](https://github.com/niko86/laterite-duckdb/issues/50)), so a page running
+that runtime cannot load it.
 
 `read_ags_text` is the natural entry point in a browser: your app already holds
 the AGS bytes (an upload or a fetch), so you hand the text in as a bound
@@ -259,8 +265,10 @@ await stmt.close();
 `read_ags` works in the browser too, against whatever the host runtime hands
 DuckDB: a file registered with `db.registerFileBuffer(name, bytes)` is the
 browser's equivalent of a path, and the gate asserts it returns the same
-born-typed rows as `read_ags_text`. `http(s)://` and `s3://` reads go through
-DuckDB-WASM's own HTTP layer and are not measured here.
+born-typed rows as `read_ags_text`, as does a URL registered with
+`db.registerFileURL(name, url, DuckDBDataProtocol.HTTP, false)`. A bare
+`http(s)://` or `s3://` path goes through DuckDB-WASM's own HTTP layer and is
+not measured here.
 
 `read_ags_text` works on native too (handy when AGS content is already in memory).
 The content must be a literal or bound parameter — DuckDB doesn't allow a subquery
