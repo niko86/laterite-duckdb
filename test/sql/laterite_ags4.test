@@ -117,6 +117,13 @@ SELECT count(*) FROM ags_rules() WHERE title IS NULL OR severity NOT IN ('error'
 ----
 0
 
+# `observations` is the comma-joined O-N ids. The catalogue lists each one as an
+# {id, note} object, so reading only plain strings left the column NULL.
+query T
+SELECT observations FROM ags_rules() WHERE rule = '1';
+----
+O-1,O-32
+
 # --- ags_dictionary(edition) — one edition's STANDARD dictionary (#294 F#6) -
 # The schema grew across editions: 4.0.3 has fewer groups than 4.2.
 query I

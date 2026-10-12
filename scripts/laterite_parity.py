@@ -72,10 +72,6 @@ KNOWN_DIVERGENCES = {
         "a DT column with a time-of-day UNIT: laterite reads a TIME, the extension "
         "parses without the UNIT and returns NULL, and ags_headings says TIMESTAMP"
     ),
-    "rules-observations": (
-        "ags_rules.observations is NULL for every rule: the catalogue lists "
-        "{id, note} objects and src/dict_fns.rs reads only plain strings"
-    ),
 }
 
 
@@ -561,9 +557,6 @@ def compare_rules(run: Run, s: Surfaces) -> None:
         )
         names = ("rule", "title", "checks", "severity", "fixable", "observations")
         for name, ev, lv in zip(names, r, expect):
-            if name == "observations" and ev is None and lv is not None:
-                run.known("rules-observations")
-                continue
             if ev != lv:
                 run.diff("ags_rules", f"rule {w['rule']}", name, ev, lv)
 
