@@ -101,7 +101,7 @@ endif
 # Note both variants leave configure/platform.txt holding a wasm platform (the
 # extension-ci-tools `wasm_*` targets rewrite it) — run `make configure` again
 # before a native build.
-.PHONY: test_wasm test_wasm_mvp test_wasm_eh wasm_gate_install
+.PHONY: test_wasm test_wasm_mvp test_wasm_eh test_wasm_threads wasm_gate_install
 wasm_gate_install: test/wasm/node_modules
 
 test/wasm/node_modules: test/wasm/package-lock.json
@@ -115,3 +115,9 @@ test_wasm_eh: wasm_eh wasm_gate_install
 	node test/wasm/gate.mjs wasm_eh
 
 test_wasm: test_wasm_mvp test_wasm_eh
+
+# wasm_threads runs on duckdb-wasm's browser-only `coi` runtime, so its gate is
+# Chromium via Playwright (#50) — once: `cd test/wasm && npx playwright install
+# chromium-headless-shell`. Not part of test_wasm, which needs no browser.
+test_wasm_threads: wasm_threads wasm_gate_install
+	node test/wasm/browser-gate.mjs wasm_threads
