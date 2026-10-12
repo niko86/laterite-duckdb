@@ -161,8 +161,11 @@ fn rules(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::Error>> 
                     .get("observations")
                     .and_then(|v| v.as_array())
                     .map(|a| {
+                        // Since reference 0.16 each entry is an `{id, note}`
+                        // object; the column carries the ids, as `laterite`'s
+                        // list_rules() keys them. A bare string is still an id.
                         a.iter()
-                            .filter_map(|x| x.as_str())
+                            .filter_map(|x| x.get("id").unwrap_or(x).as_str())
                             .collect::<Vec<_>>()
                             .join(",")
                     })
