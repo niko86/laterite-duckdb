@@ -14,7 +14,8 @@
 //! (born-typed numerics) stays unambiguous.
 
 use laterite_ags4_types::{
-    CanonicalType, canonical_type, is_time_of_day_unit, parse_time, parse_value,
+    CanonicalType, canonical_type, is_time_of_day_unit, parse_datetime_for_unit, parse_time,
+    parse_value,
 };
 
 use super::ffi_table::{Cell, ColType};
@@ -58,16 +59,29 @@ impl Emit {
 /// `laterite.read` gives (a non-conforming numeric cell is NULL, never an
 /// error).
 ///
-/// One exception, taken from the engine rather than re-derived: a `DT` heading
-/// whose UNIT is a time of day (`hh:mm`, `hh:mm:ss`) holds a time with no date,
-/// so it is read the way `build_column_for_unit` reads it — `parse_time`, not
-/// the datetime parser, which rejects a bare time and would lose the cell. The
-/// canonical string is the time alone, as `ags_headings` reports `TIME` for it.
+/// One exception, taken from the engine rather than re-derived: a `DT` cell is
+/// read against its heading's UNIT, the way `build_column_for_unit` reads it.
+/// A time-of-day UNIT (`hh:mm`, `hh:mm:ss`) holds a time with no date, so it
+/// goes through `parse_time` — the datetime parser rejects a bare time and
+/// would lose the cell — and its canonical string is the time alone, as
+/// `ags_headings` reports `TIME` for it. Every other UNIT goes through
+/// `parse_datetime_for_unit`: a year or month UNIT (`yyyy`, `yyyy-mm`) reads
+/// its value as the period's first instant and rejects a value of any other
+/// precision; the rest parse exactly as `parse_value` would.
 pub fn cell_for(raw: Option<&str>, ags_type: &str, unit: &str, kind: Emit) -> Cell {
-    if canonical_type(ags_type) == Some(CanonicalType::Datetime) && is_time_of_day_unit(unit) {
-        return raw.and_then(parse_time).map_or(Cell::Null, |t| {
-            Cell::Str(t.format("%H:%M:%S%.f").to_string())
-        });
+    if canonical_type(ags_type) == Some(CanonicalType::Datetime) {
+        if is_time_of_day_unit(unit) {
+            return raw.and_then(parse_time).map_or(Cell::Null, |t| {
+                Cell::Str(t.format("%H:%M:%S%.f").to_string())
+            });
+        }
+        // The same canonical string `parse_value` writes for a datetime.
+        return raw
+            .filter(|s| !s.trim().is_empty())
+            .and_then(|s| parse_datetime_for_unit(s, unit))
+            .map_or(Cell::Null, |dt| {
+                Cell::Str(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string())
+            });
     }
     let value = parse_value(raw, ags_type);
     if value.is_null() {
