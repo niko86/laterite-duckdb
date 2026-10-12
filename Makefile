@@ -57,6 +57,19 @@ test_debug:   test_extension_debug
 clean:     clean_build clean_rust
 clean_all: clean_configure clean_build clean_rust
 
+# --- laterite parity gate (#57) --------------------------------------------
+# Release X of this extension pins the same engine crates as laterite X, so the
+# SQL functions the two share must give the same answers. LATERITE_VERSION is
+# the one place that names X: scripts/release.sh refuses to cut any other
+# version, and this target installs exactly that laterite beside the
+# sqllogictest host's DuckDB (pinned again so pip cannot move the host) and
+# compares the debug build against it. See scripts/laterite_parity.py.
+LATERITE_VERSION:=$(shell cat $(PROJ_DIR)LATERITE_VERSION)
+.PHONY: test_laterite_parity
+test_laterite_parity: check_configure
+	$(PYTHON_VENV_BIN) -m pip install "laterite==$(LATERITE_VERSION)" "duckdb==$(DUCKDB_TEST_VERSION)"
+	$(PYTHON_VENV_BIN) scripts/laterite_parity.py --extension build/debug/$(EXTENSION_NAME).duckdb_extension
+
 # --- WASM link ordering ---------------------------------------------------
 # extension-ci-tools' base.Makefile declares the metadata target as
 #   build_extension_with_metadata_release: check_configure link_wasm_release build_extension_library_release
