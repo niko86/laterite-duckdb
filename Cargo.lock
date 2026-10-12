@@ -458,9 +458,9 @@ dependencies = [
 
 [[package]]
 name = "duckdb"
-version = "1.10505.0"
+version = "1.10506.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "970e05eedd3f55c435194d9104f90a9b4a79a80d6e73251bc9ff43e178130c4e"
+checksum = "e3472b9152d879c5534353b20854e43525b2c78b2dbba156711e9939d30278b4"
 dependencies = [
  "arrow",
  "cast",
@@ -476,9 +476,9 @@ dependencies = [
 
 [[package]]
 name = "duckdb-loadable-macros"
-version = "1.10505.0"
+version = "1.10506.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25c6267558fe4abe72bbd1f0e7601f256a19673f1813073164bf8ad1c8a53902"
+checksum = "a18b7f89eba02237dbbff3e640f2034a135fdfa0283c622709b2c5af88d02b78"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -762,9 +762,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-core"
-version = "0.15.0"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a96674c2af1e6d4ac39e846ea90222bb36b1e5321265a14211e747940a9140a1"
+checksum = "a30e88121db646cde55e800e7fd316819b7b7a8be530f817a73ba4c64932cedc"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
@@ -778,9 +778,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-parse"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2310aa3fe27d271fa0a7aae248c6e23972eb4ead2170112ab024047a98377cd9"
+checksum = "a59bd92ad28c8b7ea9e7f71ab0248c5d9cbb6739bd6f4f48903f88973515b9a4"
 dependencies = [
  "encoding_rs",
  "memchr",
@@ -788,9 +788,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-reference"
-version = "0.13.1"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51ebc8f48f518c03ca2d9c39e3e3764dc3611814fda4af1265fcea0fd0a0f191"
+checksum = "68acdd30a3808ea4851a4fc44b14778fc262c2f65e0be76046b41ad11b84a642"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
@@ -805,9 +805,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-types"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8628e01bcda70dc74b4f02b11c52b812a4498999aa41762393c2dc5de314224"
+checksum = "4b75ead5e9aa475f743bf167a67efe07adae91ef7607391fcf87e270f2ef528f"
 dependencies = [
  "chrono",
  "serde",
@@ -892,9 +892,9 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libduckdb-sys"
-version = "1.10505.0"
+version = "1.10506.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb514dab5e271e849235c1cb98bd65a2ae107fbd619a6740219319c54a71d95"
+checksum = "0aac3459f2f7f0221d5be9114fa77ff5877040c8de456d3b986a680579fe202b"
 dependencies = [
  "cc",
  "flate2",
