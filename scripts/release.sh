@@ -48,6 +48,16 @@ VERSION="${1:?usage: bash scripts/release.sh <version>   e.g. bash scripts/relea
 # var COMMIT_MSG=... for a fuller changelog when a release warrants one.
 COMMIT_MSG="${COMMIT_MSG:-release: v${VERSION}}"
 
+# Extension X pins laterite X's engine, and the CI parity gate (#57) compares
+# this build against laterite at the version LATERITE_VERSION names — so a
+# release under any other number would ship a version the gate never checked.
+# Move LATERITE_VERSION (and the engine pins with it) first.
+LATERITE_PIN="$(tr -d '[:space:]' < "$REPO_ROOT/LATERITE_VERSION")"
+[[ "$VERSION" == "$LATERITE_PIN" ]] || {
+  echo "refusing to release $VERSION: LATERITE_VERSION pins laterite $LATERITE_PIN, and the extension takes laterite's number"
+  exit 1
+}
+
 # --- stable settings (rarely change) ---
 EXT_DIR="$REPO_ROOT"                                  # this repo (derived)
 RELEASE_BRANCH=""                                     # "" = ship from CURRENT branch;
