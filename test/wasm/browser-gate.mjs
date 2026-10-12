@@ -81,6 +81,11 @@ routes.set(`/repo/${TARGET_DUCKDB_VERSION}/${PLATFORM}/laterite_ags4.duckdb_exte
 // duckdb-wasm worker inside Chromium, never this event loop.
 const server = http.createServer((req, res) => {
     const route = routes.get(new URL(req.url, 'http://x').pathname);
+    // Every artifact/fixture fetch is logged: a LOAD that hangs is otherwise
+    // indistinguishable from one whose request never left the browser.
+    if (/^\/(repo|files)\//.test(req.url)) {
+        console.log(`  [serve] ${req.method} ${req.url}${req.headers.range ? ` ${req.headers.range}` : ''}${route ? '' : ' -> 404'}`);
+    }
     if (COI) {
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
         res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
@@ -117,7 +122,10 @@ const browser = await chromium.launch();
 let exitCode = 1;
 try {
     const page = await browser.newPage();
-    page.on('console', (m) => { if (m.type() === 'error') console.log(`  [page] ${m.text()}`); });
+    page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`  [page] ${m.text()}`); });
+    // The coi runtime's pthreads are workers; an error there never reaches the
+    // page console, only this.
+    page.on('worker', (w) => w.on('console', (m) => { if (m.type() === 'error') console.log(`  [worker] ${m.text()}`); }));
     page.on('pageerror', (e) => console.log(`  [page] ${e.message}`));
     await page.goto(`${ORIGIN}/`);
     await page.waitForFunction(() => window.gate !== undefined);

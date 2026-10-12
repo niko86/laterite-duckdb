@@ -320,3 +320,13 @@ jobs:
         run: node test/wasm/browser-gate.mjs wasm_threads --control-only
       - name: wasm functional gate (wasm_threads, Chromium)
         run: node test/wasm/browser-gate.mjs wasm_threads
+
+      # The artifact a red run gated, so it can be LOADed locally
+      # (`node test/wasm/browser-gate.mjs --artifact <file>`).
+      - name: upload the wasm_threads artifact (on failure)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: laterite_ags4-wasm_threads
+          path: build/wasm_threads/extension/laterite_ags4/laterite_ags4.duckdb_extension.wasm
+          retention-days: 7
