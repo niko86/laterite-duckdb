@@ -32,8 +32,8 @@ if (!BUNDLE) {
     process.exit(2);
 }
 
-// The version-alignment invariant (the npm pin must embed TARGET_DUCKDB_VERSION)
-// and every assertion live in checks.mjs, shared with browser-gate.mjs.
+// The C-API floor (the artifact's stamp, and an npm pin at or above it) and
+// every assertion live in checks.mjs, shared with browser-gate.mjs.
 const TARGET_DUCKDB_VERSION = targetDuckdbVersion();
 const ARTIFACT = artifactPath(PLATFORM);
 if (!fs.existsSync(ARTIFACT)) {
@@ -116,6 +116,7 @@ fs.writeFileSync(FIXTURE, FIXTURE_BYTES());
 
 const failures = await runChecks({
     platform: PLATFORM,
+    artifact: ARTIFACT,
     attempt,
     registerBuffer: async (name, bytes) => {
         const p = path.join(SANDBOX, name);

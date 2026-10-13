@@ -171,6 +171,7 @@ try {
         await page.evaluate(([name, url]) => window.gate.registerURL(name, url), ['remote.ags', `${ORIGIN}/files/mini.ags`]);
         const failures = await runChecks({
             platform: PLATFORM,
+            artifact: ARTIFACT,
             attempt,
             registerBuffer: async (name, bytes) => {
                 await page.evaluate(([n, b]) => window.gate.registerBuffer(n, b), [name, Array.from(bytes)]);

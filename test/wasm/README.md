@@ -60,20 +60,23 @@ are built with `+atomics,+bulk-memory`, which needs nightly `build-std`.
 (`make test_wasm_threads`, the default platform of `browser-gate.mjs`) is kept
 for when a loadable threads build exists. CI does not run it.
 
-## The version pin is load-bearing
+## The C-API floor, and why the version pin is load-bearing
 
-The extension is built with `USE_UNSTABLE_C_API=1`: it compiles against one
-exact DuckDB C-API revision, and its metadata footer is stamped for that same
-version (`TARGET_DUCKDB_VERSION` in the Makefile). The `@duckdb/duckdb-wasm`
-release pinned in `package.json` must therefore embed **that** DuckDB —
+The extension's metadata footer is stamped `C_STRUCT` (the stable C API) with
+`TARGET_DUCKDB_VERSION` from the Makefile. That is a **floor**, not an exact
+host: the binary loads into any DuckDB whose C API is at least that version
+(1.5.6 and 2.0 alike). The `@duckdb/duckdb-wasm` release pinned in
+`package.json` must therefore embed a DuckDB **at or above** the floor —
 `@latest` is frequently a release or two behind and will not do.
 
-`gate.mjs` asserts the alignment before anything else and stops with an
-explanatory message if it drifts, because every failure below it would otherwise
-be an unreadable consequence of the same cause.
+`checks.mjs` asserts both halves before anything else: that the artifact's footer
+really says `C_STRUCT` at `TARGET_DUCKDB_VERSION` for this platform, and that the
+host's DuckDB is at or above it. It stops with an explanatory message if either
+fails, because every failure below would otherwise be an unreadable consequence
+of the same cause.
 
-To re-pin, find the release that carries the DuckDB you target — npm's version
-numbers don't encode it, so ask the artifact:
+To re-pin, find a release that carries a DuckDB at or above the floor — npm's
+version numbers don't encode it, so ask the artifact:
 
 ```sh
 npm view @duckdb/duckdb-wasm versions --json | tail -20     # recent candidates
@@ -90,14 +93,19 @@ console.log(d.PACKAGE_VERSION, "=>", db.connect().query("SELECT version()").toAr
 ```
 
 At the time of writing, `1.33.1-dev65.0` (npm's `next`) carries DuckDB v1.5.6
-while `latest` (`1.33.1-dev57.0`) still carries v1.5.4 — which is why the pin is
-exact and deliberately not tracked by Dependabot. Moving `TARGET_DUCKDB_VERSION`
-means moving this pin in the same change.
+while `latest` (`1.33.1-dev57.0`) still carries v1.5.4, below the floor — which
+is why the pin is exact and deliberately not tracked by Dependabot. Raising
+`TARGET_DUCKDB_VERSION` means checking this pin in the same change. The pin
+sits AT the floor today, and both harnesses stage the artifact under
+`<repo>/<TARGET_DUCKDB_VERSION>/<platform>/`, the directory a host of exactly
+that version fetches from; a pin above the floor must also stage it under the
+host's own version.
 
-Note that the wasm loader does **not** enforce the stamped `duckdb_version`: an
-artifact footered for the wrong release still loads. The mismatch would surface
-as an ABI-level misbehaviour at call time, not as a refused load — which is
-precisely why this gate asserts returned values rather than a successful `LOAD`.
+Note that the wasm loader does **not** check the footer's ABI type or version:
+an artifact stamped `C_STRUCT_UNSTABLE` for another release, or `C_STRUCT` above
+the host's C API, still loads. That is why the gate reads the footer itself. A
+host below the floor is still refused, but only by the extension's own init,
+which requests the floor version from the host (`src/lib.rs`).
 
 ## The emsdk version matters too
 

@@ -10,30 +10,31 @@ PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # wrong dylib (`lib.dylib`).
 EXTENSION_NAME=laterite_ags4
 
-# The path/remote readers use DuckDB's filesystem (the VFS) = the version-exact
-# (unstable) C API, so the binary is pinned to one DuckDB version and rebuilt per
-# release. That pin is what makes the wasm gate's npm version check load-bearing
-# (test/wasm/README.md): the @duckdb/duckdb-wasm release it loads into must embed
-# exactly TARGET_DUCKDB_VERSION.
+# NO USE_UNSTABLE_C_API, so the metadata footer's ABI type is `C_STRUCT`
+# (stable). The unstable stamp (`C_STRUCT_UNSTABLE`) tied the binary to one exact
+# DuckDB build — a v1.5.5-stamped binary was refused by the 1.5.6 sqllogictest
+# host — and on DuckDB 2.0 it selects the V2 C API: the loader looks for
+# `laterite_ags4_init_c_api_v2`, which duckdb-rs (V1 header only) never emits,
+# so LOAD fails. Nothing here needs the unstable API any more: every function
+# that was unstable in the V1 API, the VFS calls the path/remote readers use
+# included, was stabilised at v1.5.6 (DuckDB 2.0's extension_load.cpp says so;
+# the 1.5.6 and 2.0 duckdb_extension.h both gate them on
+# DUCKDB_API_VERSION_AT_LEAST(1, 5, 6), not on UNSTABLE).
 #
-# This is NOT a wasm exclusion — that note predated the wasm build. description.yml
-# excludes linux_amd64_musl and wasm_threads (#50), wasm_mvp + wasm_eh ship, and `make test_wasm`
-# measures the VFS reader working in wasm against a host-registered file.
-USE_UNSTABLE_C_API=1
-# The HOST DuckDB version the metadata footer is stamped for — must match the
-# DuckDB the extension is LOADED into (the community build matrix + the
-# sqllogictest venv are 1.5.6), NOT the C-API line the crate is built against.
-# duckdb-rs 1.10506.0 compiles against the 1.5.6 C-API and the host is 1.5.6, so
-# the cdylib is stamped v1.5.6. The stamped version must EQUAL the host's or the
-# loader rejects it: the venv shipped v1.5.5 while this stayed v1.5.4, and the
-# 1.5.5 sqllogictest host rejected the v1.5.4-stamped load with a version mismatch.
+# Under `C_STRUCT` this is the C-API version the binary DECLARES, which the
+# loader reads as a FLOOR: any host whose V1 C API is at least this loads it. It
+# is not the host's DuckDB version and need not equal it — the one binary loads
+# into 1.5.6 and into 2.0, whose V1 C API is also v1.5.6. It is v1.5.6 because
+# that is where the VFS functions became stable; src/lib.rs requests the same
+# version at init. test/wasm/checks.mjs reads this line with a regex, so keep it
+# a literal `=` assignment.
 TARGET_DUCKDB_VERSION=v1.5.6
-# The sqllogictest host's DuckDB, derived from the stamp above so the two cannot
+# The sqllogictest host's DuckDB: the floor itself, i.e. the oldest host the
+# binary claims to load into. Derived from the stamp above so the two cannot
 # disagree. Left blank, base.Makefile's `venv` pip-installs whatever PyPI calls
-# latest, so the host moved the day PyPI did rather than the day this file did:
-# PyPI shipped 1.5.6 while the cdylib was still stamped v1.5.5, and every PR went
-# red on the version-mismatch load with nothing in the PR to blame. `?=` so a
-# caller that sets it on purpose (an env override, the community matrix) still wins.
+# latest, so the host would move the day PyPI did rather than the day this file
+# did. `?=` so a caller that sets it on purpose (an env override, the community
+# matrix, `main` for a 2.0 dev host) still wins.
 DUCKDB_TEST_VERSION?=$(patsubst v%,%,$(TARGET_DUCKDB_VERSION))
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
@@ -101,10 +102,10 @@ endif
 # `_parent_id`/`_id` join, `_content_hash` parity with the native/wheel output,
 # `read_ags` through the host VFS, and the metadata surface. See test/wasm/.
 #
-# The npm pin in test/wasm/package.json is load-bearing: under
-# USE_UNSTABLE_C_API=1 the artifact is stamped for ONE DuckDB version and the
-# loader rejects any other, so the @duckdb/duckdb-wasm release must embed
-# exactly TARGET_DUCKDB_VERSION. The gate asserts that first and says so.
+# The npm pin in test/wasm/package.json is load-bearing: the
+# @duckdb/duckdb-wasm release must embed a DuckDB at or above the C-API floor
+# (TARGET_DUCKDB_VERSION). The gate asserts the artifact's stamp and the host's
+# version against that floor first, and says so.
 #
 # Note both variants leave configure/platform.txt holding a wasm platform (the
 # extension-ci-tools `wasm_*` targets rewrite it) — run `make configure` again

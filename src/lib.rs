@@ -7,7 +7,7 @@
 //! ```
 //!
 //! Built on the **C Extension API** via the official `duckdb` crate (duckdb-rs,
-//! DuckDB 1.5.3 C-API line; zero C++). It reuses the pure Rust engine wholesale:
+//! DuckDB 1.5.6 C-API line; zero C++). It reuses the pure Rust engine wholesale:
 //! `laterite-ags4-core`'s AGS4 codec + deterministic-key `keychain` and
 //! `laterite-ags4-types`' single typing authority.
 //!
@@ -114,10 +114,16 @@ unsafe fn init_internal(
 ) -> Result<bool, Box<dyn Error>> {
     unsafe {
         // Populate the C API function-pointer struct the libduckdb-sys wrappers
-        // dispatch through. v1.5.1 is the floor at which the client-context /
-        // filesystem functions are present (a too-low floor makes the VFS calls
-        // hit an "API not initialized" assert).
-        let have_api = ffi::duckdb_rs_extension_api_init(info, access, "v1.5.1")?;
+        // dispatch through. The version requested is the C-API floor, the same
+        // one the Makefile stamps into the footer (TARGET_DUCKDB_VERSION): v1.5.6
+        // is where the client-context / filesystem functions the readers use
+        // became stable. A host hands back its whole struct for any version up
+        // to its own and refuses a newer one, so a host below the floor fails
+        // HERE, naming the version, rather than at the first VFS call. This is
+        // the only floor check wherever the footer's is skipped: duckdb-wasm
+        // loads an artifact whatever its footer says, and a native host does
+        // under allow_extensions_metadata_mismatch.
+        let have_api = ffi::duckdb_rs_extension_api_init(info, access, "v1.5.6")?;
         if !have_api {
             return Ok(false); // API version mismatch — DuckDB has the reason
         }

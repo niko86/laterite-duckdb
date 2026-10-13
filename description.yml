@@ -9,12 +9,16 @@ extension:
   # C-API extension (official duckdb-rs crate) compiles to a
   # wasm32-unknown-emscripten staticlib example (src/wasm_lib.rs) that
   # extension-ci-tools emcc-links as an emscripten SIDE_MODULE. Building on the
-  # duckdb crate (MSRV 1.85) lets the community wasm image's rustc 1.86 be used,
+  # duckdb crate (MSRV 1.85.1) lets the community wasm image's rustc 1.86 be used,
   # which does NOT emit the `--enable-bulk-memory-opt` flag that the image's older
   # binaryen wasm-opt rejects — the flag quack-rs's rustc-1.87 floor forced, which
-  # had blocked wasm entirely. read_ags_text + the metadata functions need no
-  # filesystem; browser SQL-over-AGS is also served by the dedicated
-  # `laterite-ags4-wasm` package.
+  # had blocked wasm entirely. The path readers work in wasm too, through the
+  # host's filesystem (test/wasm gates read_ags); browser SQL-over-AGS is also
+  # served by the dedicated `laterite-ags4-wasm` package.
+  #
+  # Every build is stamped with the STABLE C API at v1.5.6 (the Makefile's
+  # TARGET_DUCKDB_VERSION): a floor, so one binary loads into DuckDB 1.5.6 and
+  # later rather than into exactly one release.
   #
   # wasm_threads is excluded (#50): it links, but does not LOAD. Every
   # wasm_threads extension build gets a non-shared memory (DuckDB's own core

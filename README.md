@@ -297,10 +297,11 @@ make test           # run the sqllogictests
 make test_wasm      # build the wasm variants and run the functional gate against them
 ```
 
-The binary is built for one specific DuckDB version — the C extension API it uses for
-filesystem access pins it, so a build is not portable across DuckDB releases.
-community-extensions builds one per supported release, so `INSTALL ... FROM community`
-fetches the matching one. Built and tested against DuckDB 1.5.6.
+The binary is built against DuckDB's stable C extension API at v1.5.6, the version
+where the filesystem functions it reads through became stable. That version is a
+floor, not a pin: one build loads into DuckDB 1.5.6 and later. community-extensions
+builds one per supported release, so `INSTALL ... FROM community` fetches the matching
+one. Tested on DuckDB 1.5.6.
 
 ## License
 
