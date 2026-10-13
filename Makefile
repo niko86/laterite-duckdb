@@ -29,13 +29,13 @@ EXTENSION_NAME=laterite_ags4
 # version at init. test/wasm/checks.mjs reads this line with a regex, so keep it
 # a literal `=` assignment.
 TARGET_DUCKDB_VERSION=v1.5.6
-# The sqllogictest host's DuckDB: the floor itself, i.e. the oldest host the
-# binary claims to load into. Derived from the stamp above so the two cannot
-# disagree. Left blank, base.Makefile's `venv` pip-installs whatever PyPI calls
-# latest, so the host would move the day PyPI did rather than the day this file
-# did. `?=` so a caller that sets it on purpose (an env override, the community
-# matrix, `main` for a 2.0 dev host) still wins.
-DUCKDB_TEST_VERSION?=$(patsubst v%,%,$(TARGET_DUCKDB_VERSION))
+# The sqllogictest host. `main` makes extension-ci-tools pip-install
+# `--pre duckdb`, i.e. the newest 2.0.0.dev build — the only 2.0 host PyPI has
+# until 2.0.0 ships. It moves when PyPI does; with a C-API floor stamp that no
+# longer turns every PR red the way an exact-version stamp did on main. At the
+# 2.0.0 release pin it to `2.0.0`. `?=` so a caller that sets it on purpose
+# (an env override, the community matrix) still wins.
+DUCKDB_TEST_VERSION?=main
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
@@ -68,7 +68,7 @@ clean_all: clean_configure clean_build clean_rust
 LATERITE_VERSION:=$(shell cat $(PROJ_DIR)LATERITE_VERSION)
 .PHONY: test_laterite_parity
 test_laterite_parity: check_configure
-	$(PYTHON_VENV_BIN) -m pip install "laterite==$(LATERITE_VERSION)" "duckdb==$(DUCKDB_TEST_VERSION)"
+	$(PYTHON_VENV_BIN) -m pip install "laterite==$(LATERITE_VERSION)" "duckdb==$$($(PYTHON_VENV_BIN) -c 'import duckdb;print(duckdb.__version__)')"
 	$(PYTHON_VENV_BIN) scripts/laterite_parity.py --extension build/debug/$(EXTENSION_NAME).duckdb_extension
 
 # --- function docs gate ----------------------------------------------------
