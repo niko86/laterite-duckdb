@@ -18,7 +18,7 @@
 name = "laterite-duckdb"
 version = "0.15.0"
 edition = "2024"
-rust-version = "1.85"      # duckdb-rs (1.10503.1) MSRV = 1.85.1; the community
+rust-version = "1.85"      # duckdb-rs (1.10506.0) MSRV = 1.85.1; the community
                            # wasm image ships rustc 1.86, so no 1.87 pin. This
                            # is a real floor, not a wish: 1.86 predates
                            # let-chains, and one `if let … &&` in src/cert.rs
@@ -98,8 +98,8 @@ serde_json = "1"
 encoding_rs = "0.8"
 # The official DuckDB Rust binding (duckdb-rs), pinned to the DuckDB 1.5.6 C-API
 # line (crate version 1.10506.0). `loadable-extension` builds the extension against
-# the C Extension API (the API struct is resolved at load, so the binary is
-# rebuilt per DuckDB release — community-extensions' build matrix does this).
+# the C Extension API (the API struct is resolved at load, from any host whose
+# C API is at or above the floor the Makefile stamps — see TARGET_DUCKDB_VERSION).
 # `vtab` exposes the table-function machinery. Unlike quack-rs (MSRV 1.87), this
 # builds on rustc 1.86 = the community wasm image's toolchain, which unblocks wasm.
 duckdb = { version = "1.10506.0", features = ["loadable-extension", "vtab"] }
