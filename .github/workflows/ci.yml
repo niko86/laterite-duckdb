@@ -29,7 +29,9 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: clippy and cargo test each compile bundled DuckDB 2.0 (~12 min
+    # on a cold cache), and the first run hit 30 during rust-cache's save.
+    timeout-minutes: 45
     steps:
       # `extension-ci-tools` is the only submodule now — the laterite library crates
       # come from crates.io. Still recursive: the make targets below need it.
