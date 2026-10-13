@@ -137,11 +137,11 @@ fn file_dict_declaring(
     group: &str,
     fetch: impl FnOnce((u64, u64)) -> Option<AgsGroup>,
 ) -> Option<FileDict> {
-    // `is_some_and`, not a `let`-chain: let-chains stabilised in Rust 1.88, and
-    // the community-extensions wasm image builds this crate on 1.86 — the one
-    // here made every wasm variant fail to compile in the release matrix while
-    // every check in this repo stayed green (found by the wasm gate, #29). The
-    // `wasm` CI job pins 1.86.0 for exactly this reason; keep the crate inside it.
+    // `is_some_and`, not a `let`-chain, dates from the 1.5 line: let-chains
+    // stabilised in Rust 1.88 and its community wasm image built on 1.86 — the
+    // one here made every wasm variant fail to compile in the release matrix
+    // (found by the wasm gate, #29). On the DuckDB 2.0 line the crate's floor is
+    // 1.88 and the wasm build uses 1.97.1, so let-chains are allowed again.
     if sidecar
         .defines
         .as_ref()
