@@ -22,12 +22,12 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(HERE, '..', '..');
 
-// --- the version-alignment invariant ------------------------------------
-// The extension is built with USE_UNSTABLE_C_API=1: it compiles against one
-// exact C-API struct layout, and is stamped for that DuckDB version. The
-// @duckdb/duckdb-wasm pin in package.json must therefore embed the same DuckDB
-// as TARGET_DUCKDB_VERSION. Read the Makefile rather than restating the version
-// here — one source, no drift.
+// --- the C-API floor -------------------------------------------------------
+// The artifact's footer is stamped `C_STRUCT` with TARGET_DUCKDB_VERSION, the
+// stable C-API version it declares: a FLOOR, not an exact host (the Makefile
+// says why). So the @duckdb/duckdb-wasm pin in package.json must embed a DuckDB
+// at or above it. Read the Makefile rather than restating the version here — one
+// source, no drift.
 export function targetDuckdbVersion() {
     const makefile = fs.readFileSync(path.join(REPO, 'Makefile'), 'utf8');
     const v = /^TARGET_DUCKDB_VERSION=(\S+)$/m.exec(makefile)?.[1];
@@ -41,6 +41,23 @@ export function targetDuckdbVersion() {
 export function artifactPath(platform) {
     return path.join(REPO, 'build', platform, 'extension', 'laterite_ags4', 'laterite_ags4.duckdb_extension.wasm');
 }
+
+// The metadata footer extension-ci-tools' append_extension_metadata.py writes:
+// the file ends in eight NUL-padded 32-byte fields, last field first, then 256
+// bytes of signature space.
+export function readFooter(file) {
+    const bytes = fs.readFileSync(file);
+    const fields = bytes.subarray(bytes.length - 512, bytes.length - 256);
+    const field = (i) => fields.subarray(i * 32, (i + 1) * 32).toString('latin1').replace(/\0+$/, '');
+    return { abiType: field(3), capiVersion: field(5), platform: field(6), magic: field(7) };
+}
+
+// `v1.5.6` / `v2.0.0-alpha…` → [major, minor, patch], or undefined.
+const semver = (v) => /^v(\d+)\.(\d+)\.(\d+)/.exec(v ?? '')?.slice(1).map(Number);
+const atLeast = (a, b) => {
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return true;
+};
 
 export const FIXTURE_BYTES = () => fs.readFileSync(path.join(REPO, 'test', 'sql', 'mini.ags'));
 
@@ -72,7 +89,7 @@ export function makeReport() {
 
 // Returns the number of failed checks. Stops early (and says why) where every
 // check below would only be a consequence of the same cause.
-export async function runChecks({ platform, attempt, registerBuffer, pathReaders = [], repositoryUrl, report = makeReport() }) {
+export async function runChecks({ platform, artifact, attempt, registerBuffer, pathReaders = [], repositoryUrl, report = makeReport() }) {
     const { check, checkThat } = report;
     const TARGET_DUCKDB_VERSION = targetDuckdbVersion();
     const rows = async (sql) => {
@@ -81,19 +98,34 @@ export async function runChecks({ platform, attempt, registerBuffer, pathReaders
         return r.rows;
     };
 
-    // --- 1. host/artifact version alignment ---------------------------------
-    // This is the go/no-go, and it has to be asserted rather than relied upon: the
-    // wasm loader does NOT enforce the stamped duckdb_version — an artifact
-    // footered for the wrong release still loads — so a drifted pin would surface
-    // as ABI-level misbehaviour somewhere below, or as nothing at all, rather than
-    // as a refused load. Name the cause here while it is still nameable.
+    // --- 1. the artifact's stamp, and the host against it -------------------
+    // This is the go/no-go, and both halves have to be asserted rather than
+    // relied upon: the wasm loader does not check the footer's ABI type or
+    // version — an artifact stamped C_STRUCT_UNSTABLE for another release, or
+    // C_STRUCT above the host's C API, still loads here. So a Makefile that slid
+    // back to the unstable stamp would pass every check below, while the native
+    // artifacts it stamps the same way are refused by every DuckDB but one; and
+    // a host pin below the floor would surface only as the extension's own init
+    // refusal (src/lib.rs). Name the cause here while it is still nameable.
+    const footer = readFooter(artifact);
+    const stampOk = check(`artifact is stamped C_STRUCT ${TARGET_DUCKDB_VERSION} for ${platform} (Makefile TARGET_DUCKDB_VERSION)`,
+        footer, { abiType: 'C_STRUCT', capiVersion: TARGET_DUCKDB_VERSION, platform, magic: '4' });
     const host = (await rows('SELECT version() AS version, (SELECT platform FROM pragma_platform()) AS platform'))[0];
-    if (!check(`host DuckDB is ${TARGET_DUCKDB_VERSION} (Makefile TARGET_DUCKDB_VERSION)`,
-        host.version, TARGET_DUCKDB_VERSION)) {
+    const hostV = semver(host.version);
+    const hostOk = checkThat(`host DuckDB ${host.version} is at or above the C-API floor ${TARGET_DUCKDB_VERSION}`,
+        hostV !== undefined && atLeast(hostV, semver(TARGET_DUCKDB_VERSION)));
+    if (!stampOk) {
+        console.log(`\n  The footer says ${footer.abiType} ${footer.capiVersion}; it should declare the stable C API`);
+        console.log(`  (C_STRUCT) at the Makefile's ${TARGET_DUCKDB_VERSION}. An unstable stamp (USE_UNSTABLE_C_API) ties`);
+        console.log('  the binary to one exact DuckDB build and cannot load on DuckDB 2.0 — check the Makefile.');
+    }
+    if (!hostOk) {
         console.log(`\n  The @duckdb/duckdb-wasm pin in test/wasm/package.json embeds DuckDB ${host.version},`);
-        console.log(`  but this extension is stamped for ${TARGET_DUCKDB_VERSION} and built against that exact`);
-        console.log('  C API (USE_UNSTABLE_C_API=1). Re-pin the npm version to the release that carries');
-        console.log(`  DuckDB ${TARGET_DUCKDB_VERSION}, or move TARGET_DUCKDB_VERSION — nothing below can pass first.\n`);
+        console.log(`  below the C-API floor ${TARGET_DUCKDB_VERSION} this extension declares. Re-pin the npm`);
+        console.log(`  version to a release that carries DuckDB ${TARGET_DUCKDB_VERSION} or later.`);
+    }
+    if (!stampOk || !hostOk) {
+        console.log('  Nothing below can mean anything until that is fixed.\n');
         return report.failures;
     }
     check(`host platform is ${platform}`, host.platform, platform);
