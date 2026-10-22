@@ -61,7 +61,9 @@ docs:
     `laterite_ags4` reads [AGS4](https://www.ags.org.uk/) geotechnical & geoenvironmental
     data files as first-class DuckDB tables — no conversion step, no bundled engine.
 
-    Written in 🦀 Rust on DuckDB's C Extension API (zero C++).
+    Written in 🦀 Rust on DuckDB's C Extension API (zero C++). Part of the
+    [laterite](https://docs.laterite.dev/) toolkit and, like the rest of it,
+    **in beta** — see [what beta means](https://docs.laterite.dev/reference/support/).
 
     ### What it gives you
 
@@ -77,8 +79,8 @@ docs:
       repeat-/remote-query store.
     - **Local or remote** — reads go through DuckDB's virtual filesystem, so local paths,
       `http(s)://` and `s3://` (with `LOAD httpfs`) all work on one code path.
-    - **Native + wasm** — built for every community-extensions platform, DuckDB-WASM
-      included: the same reader for native and browser DuckDB.
+    - **Native + wasm** — built for the community-extensions native platforms and
+      DuckDB-WASM (`wasm_mvp`, `wasm_eh`): the same reader for native and browser DuckDB.
 
     ### Functions
 
