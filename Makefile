@@ -29,13 +29,10 @@ EXTENSION_NAME=laterite_ags4
 # version at init. test/wasm/checks.mjs reads this line with a regex, so keep it
 # a literal `=` assignment.
 TARGET_DUCKDB_VERSION=v1.5.6
-# The sqllogictest host. `main` makes extension-ci-tools pip-install
-# `--pre duckdb`, i.e. the newest 2.0.0.dev build — the only 2.0 host PyPI has
-# until 2.0.0 ships. It moves when PyPI does; with a C-API floor stamp that no
-# longer turns every PR red the way an exact-version stamp did on main. At the
-# 2.0.0 release pin it to `2.0.0`. `?=` so a caller that sets it on purpose
-# (an env override, the community matrix) still wins.
-DUCKDB_TEST_VERSION?=main
+# The sqllogictest host: the DuckDB 2.0 release, pinned so the host cannot move
+# under a PR. `?=` so a caller that sets it on purpose (an env override, the
+# community matrix) still wins.
+DUCKDB_TEST_VERSION?=2.0.0
 
 # Include extension-ci-tools build rules (the `extension-ci-tools` submodule).
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile

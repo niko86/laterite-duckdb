@@ -99,19 +99,13 @@ encoding_rs = "0.8"
 # struct is resolved at load, from any host whose C API is at or above the floor
 # the Makefile stamps — see TARGET_DUCKDB_VERSION). `vtab` exposes the
 # table-function machinery.
-#
-# TEMPORARY git pin: duckdb-rs's 2.0 crate (1.20000.0) is not on crates.io yet.
-# The rev is the head of its `release-version-main-v2.0` branch — main plus one
-# commit pinning the bundled DuckDB to a v2.0.0 alpha. Pinned to the SHA, not the
-# branch, so the build cannot move under us. Replace all three entries with
-# `version = "1.20000.0"` once that publishes (niko86/laterite-duckdb#69).
-duckdb = { git = "https://github.com/duckdb/duckdb-rs", rev = "ce22a375da122351f5876e5142e091aeadbf179f", features = ["loadable-extension", "vtab"] }
+duckdb = { version = "1.20000.0", features = ["loadable-extension", "vtab"] }
 # The raw DuckDB C API (the same version line duckdb-rs bundles). Needed directly
 # for the VFS calls duckdb-rs's safe surface doesn't expose:
 # duckdb_table_function_get_client_context → duckdb_client_context_get_file_system
 # → duckdb_file_system_open / duckdb_file_handle_{size,seek,read,close}. All raw
 # FFI is concentrated in src/ffi_table.rs + src/source.rs.
-libduckdb-sys = { git = "https://github.com/duckdb/duckdb-rs", rev = "ce22a375da122351f5876e5142e091aeadbf179f", features = ["loadable-extension"] }
+libduckdb-sys = { version = "1.20000.0", features = ["loadable-extension"] }
 
 [dev-dependencies]
 # In-process E2E host: LOAD the built .duckdb_extension into a bundled DuckDB.
@@ -119,7 +113,7 @@ libduckdb-sys = { git = "https://github.com/duckdb/duckdb-rs", rev = "ce22a375da
 # NEVER on the shipped extension (that stays loadable, resolving the host's C API).
 # libduckdb-sys' loadable vs bundled builds can't share target/, so CI builds the
 # loadable artifact + freezes it, THEN runs the bundled-host e2e (one rebuild).
-duckdb = { git = "https://github.com/duckdb/duckdb-rs", rev = "ce22a375da122351f5876e5142e091aeadbf179f", features = ["bundled"] }
+duckdb = { version = "1.20000.0", features = ["bundled"] }
 
 # Release profile mirrors the community-extension build (small, fast cdylib).
 [profile.release]
