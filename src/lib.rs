@@ -92,10 +92,10 @@ pub unsafe extern "C" fn laterite_ags4_init_c_api(
         match init_internal(info, access) {
             Ok(v) => v,
             Err(e) => {
-                if let Some(set_error) = (*access).set_error {
-                    if let Ok(msg) = CString::new(e.to_string()) {
-                        set_error(info, msg.as_ptr());
-                    }
+                if let Some(set_error) = (*access).set_error
+                    && let Ok(msg) = CString::new(e.to_string())
+                {
+                    set_error(info, msg.as_ptr());
                 }
                 false
             }

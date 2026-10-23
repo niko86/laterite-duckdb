@@ -91,10 +91,10 @@ pub fn register(con: ffi::duckdb_connection) -> Result<(), Box<dyn std::error::E
         // it serves the default encoding only; a non-UTF-8 read takes the
         // whole-file decode path (the cert is a same-file optimisation, not a
         // correctness requirement).
-        if encoding == encoding_rs::UTF_8 {
-            if let Some((ags, binding)) = super::cert::sliced_group(&vfs, &path, &group) {
-                return build_table(&ags, &group, &binding);
-            }
+        if encoding == encoding_rs::UTF_8
+            && let Some((ags, binding)) = super::cert::sliced_group(&vfs, &path, &group)
+        {
+            return build_table(&ags, &group, &binding);
         }
         let parsed = read_parsed_with_encoding(&vfs, &path, encoding)?;
         let ags = resolve_group(&parsed, &group)?;

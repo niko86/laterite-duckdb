@@ -18,13 +18,11 @@
 name = "laterite-duckdb"
 version = "0.15.0"
 edition = "2024"
-rust-version = "1.85"      # duckdb-rs (1.10506.0) MSRV = 1.85.1; the community
-                           # wasm image ships rustc 1.86, so no 1.87 pin. This
-                           # is a real floor, not a wish: 1.86 predates
-                           # let-chains, and one `if let … &&` in src/cert.rs
-                           # made every wasm variant fail to compile in the
-                           # release matrix. ci.yml's `wasm` job builds at
-                           # 1.86.0 so the next one goes red here instead.
+rust-version = "1.88"      # duckdb-rs's 2.0 line (1.20000.0) has MSRV 1.88, and
+                           # extension-ci-tools main builds every platform,
+                           # wasm included, at rustc 1.97.1. The 1.86 floor that
+                           # main carries (the community wasm image's rustc, which
+                           # predates let-chains) does not apply on this branch.
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
 license = "MIT"
 publish = false
@@ -75,13 +73,13 @@ path = "src/wasm_lib.rs"
 # `effective_dict` re-export, `group_row_ids_effective` — #41,
 # niko86/laterite#815) rides along.
 #
-# core 0.17.2 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.2 itself
+# core 0.17.4 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.4 itself
 # requires types ^0.14, reference ^0.16.1 and parse ^0.14, so moving any floor
 # alone resolves a second copy of a leaf — the split the one-copy CI gate refuses,
 # and why per-crate update PRs cannot merge singly. No API this reader calls
 # changed; the one difference its tests saw is catalogue data — ags_rules()
 # now reports Rule 8's severity as 'mixed' (see test/sql/laterite_ags4.test).
-laterite-ags4-core = { version = "0.17.2", default-features = false }
+laterite-ags4-core = { version = "0.17.4", default-features = false }
 laterite-ags4-types = "0.14.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
@@ -96,19 +94,18 @@ serde_json = "1"
 # `read_ags` can decode non-UTF-8 bytes before the UTF-8-only core codec, and to
 # resolve a label to the `&'static Encoding` `CheckOptions.encoding` takes.
 encoding_rs = "0.8"
-# The official DuckDB Rust binding (duckdb-rs), pinned to the DuckDB 1.5.6 C-API
-# line (crate version 1.10506.0). `loadable-extension` builds the extension against
-# the C Extension API (the API struct is resolved at load, from any host whose
-# C API is at or above the floor the Makefile stamps — see TARGET_DUCKDB_VERSION).
-# `vtab` exposes the table-function machinery. Unlike quack-rs (MSRV 1.87), this
-# builds on rustc 1.86 = the community wasm image's toolchain, which unblocks wasm.
-duckdb = { version = "1.10506.0", features = ["loadable-extension", "vtab"] }
+# The official DuckDB Rust binding (duckdb-rs), on the DuckDB 2.0 C-API line.
+# `loadable-extension` builds the extension against the C Extension API (the API
+# struct is resolved at load, from any host whose C API is at or above the floor
+# the Makefile stamps — see TARGET_DUCKDB_VERSION). `vtab` exposes the
+# table-function machinery.
+duckdb = { version = "1.20000.0", features = ["loadable-extension", "vtab"] }
 # The raw DuckDB C API (the same version line duckdb-rs bundles). Needed directly
 # for the VFS calls duckdb-rs's safe surface doesn't expose:
 # duckdb_table_function_get_client_context → duckdb_client_context_get_file_system
 # → duckdb_file_system_open / duckdb_file_handle_{size,seek,read,close}. All raw
 # FFI is concentrated in src/ffi_table.rs + src/source.rs.
-libduckdb-sys = { version = "1.10506.0", features = ["loadable-extension"] }
+libduckdb-sys = { version = "1.20000.0", features = ["loadable-extension"] }
 
 [dev-dependencies]
 # In-process E2E host: LOAD the built .duckdb_extension into a bundled DuckDB.
@@ -116,7 +113,7 @@ libduckdb-sys = { version = "1.10506.0", features = ["loadable-extension"] }
 # NEVER on the shipped extension (that stays loadable, resolving the host's C API).
 # libduckdb-sys' loadable vs bundled builds can't share target/, so CI builds the
 # loadable artifact + freezes it, THEN runs the bundled-host e2e (one rebuild).
-duckdb = { version = "1.10506.0", features = ["bundled"] }
+duckdb = { version = "1.20000.0", features = ["bundled"] }
 
 # Release profile mirrors the community-extension build (small, fast cdylib).
 [profile.release]

@@ -29,7 +29,9 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, not 30: clippy and cargo test each compile bundled DuckDB 2.0 (~12 min
+    # on a cold cache), and the first run hit 30 during rust-cache's save.
+    timeout-minutes: 45
     steps:
       # `extension-ci-tools` is the only submodule now — the laterite library crates
       # come from crates.io. Still recursive: the make targets below need it.
@@ -172,16 +174,26 @@ jobs:
   #
   # It mirrors the steps extension-ci-tools' own wasm job uses
   # (`extension-ci-tools/.github/workflows/_extension_distribution.yml`) —
-  # setup-emsdk at the version that image pins, rustc 1.86.0 (the community wasm
-  # image's toolchain, and the reason this extension builds for wasm at all: see
-  # description.yml), then ci-tools' `make wasm_*` targets — rather than
+  # setup-emsdk at the version that image pins, the rustc its wasm job pins (on
+  # the 2.0 branch, extension-ci-tools main's 1.97.1), then ci-tools'
+  # `make wasm_*` targets — rather than
   # hand-rolling an emscripten setup that would drift from the release build.
   #
   # Only ci.yml carries this. release.yml tests the RELEASE artifact because it
   # differs from ci.yml's debug one; the wasm targets are always release builds,
   # so a tag adds no information this job hasn't already given for the same
   # commit (the branch ruleset means every main commit came through a PR here).
+  #
+  # DISABLED on DuckDB 2.0 (#69): there is no @duckdb/duckdb-wasm release
+  # embedding DuckDB 2.0. The C-API floor alone would let the 1.x harness pass,
+  # but extension-ci-tools' 2.0 wasm job links with emsdk 6.0.9, so the artifact
+  # it ships pairs with a 2.0 duckdb-wasm host; loading it into the 1.x host,
+  # built on an older emsdk, gates a pairing nobody runs. Kept rather than
+  # deleted, as community-extensions' UPDATING.md does for a job that cannot run
+  # yet; re-enable (drop the `if: false`) once a 2.0 duckdb-wasm exists and
+  # test/wasm's pin moves to it.
   wasm:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -200,24 +212,20 @@ jobs:
       # buying much.
       - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: 3.1.71
+          version: 6.0.9
 
-      # 1.86.0, not `stable` — the exact toolchain extension-ci-tools' wasm job
-      # pins, so this gates the artifact the release matrix actually produces.
-      # A newer rustc here would gate a DIFFERENT binary and hide real breakage,
-      # in both directions:
-      #   - forward: 1.86 predates let-chains (stable in 1.88). One `if let … &&`
-      #     in src/cert.rs made every wasm variant fail to compile in the release
-      #     matrix while everything in this repo stayed green — found only by
-      #     building at this pin (#29).
-      #   - backward: 1.87 moved wasm32-unknown-emscripten to native wasm
-      #     exceptions, so a modern rustc emits no `invoke_*` trampolines at all
-      #     and cannot surface an emscripten ABI mismatch that 1.86 would hit.
+      # 1.97.1, not `stable` — the exact toolchain extension-ci-tools main's wasm
+      # job pins (the line the community duckdb-next-build matrix uses for 2.0),
+      # so this gates the artifact that matrix actually produces. A different
+      # rustc here would gate a DIFFERENT binary: 1.87 moved
+      # wasm32-unknown-emscripten to native wasm exceptions, and main's 1.86 pin
+      # existed because 1.86 predates let-chains. On this branch the crate's
+      # floor is 1.88 (duckdb-rs 2.0's MSRV), so the let-chains hazard is gone.
       # The emsdk pin above is the other half of the same pairing.
       - name: Install Rust toolchain (wasm)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.97.1
           targets: wasm32-unknown-emscripten
 
       # Separate cache scope from build-test: this compiles the whole dependency
@@ -266,7 +274,17 @@ jobs:
   # description.yml). The harness's threads mode is kept for when that changes.
   # The page is still cross-origin isolated and the positive control still
   # requires it, so bringing threads back is a platform argument, not a rework.
+  #
+  # DISABLED on DuckDB 2.0 (#69): there is no @duckdb/duckdb-wasm release
+  # embedding DuckDB 2.0. The C-API floor alone would let the 1.x harness pass,
+  # but extension-ci-tools' 2.0 wasm job links with emsdk 6.0.9, so the artifact
+  # it ships pairs with a 2.0 duckdb-wasm host; loading it into the 1.x host,
+  # built on an older emsdk, gates a pairing nobody runs. Kept rather than
+  # deleted, as community-extensions' UPDATING.md does for a job that cannot run
+  # yet; re-enable (drop the `if: false`) once a 2.0 duckdb-wasm exists and
+  # test/wasm's pin moves to it.
   wasm-browser:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -276,12 +294,12 @@ jobs:
 
       - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: 3.1.71
+          version: 6.0.9
 
       - name: Install Rust toolchain (wasm)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.97.1
           targets: wasm32-unknown-emscripten
 
       - name: Rust dependency cache (wasm)
