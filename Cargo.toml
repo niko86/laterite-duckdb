@@ -16,7 +16,7 @@
 # `extension-ci-tools`; the laterite submodule is gone.
 [package]
 name = "laterite-duckdb"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 rust-version = "1.88"      # duckdb-rs's 2.0 line (1.20000.0) has MSRV 1.88, and
                            # extension-ci-tools main builds every platform,
