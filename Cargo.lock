@@ -762,9 +762,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-core"
-version = "0.17.2"
+version = "0.17.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a30e88121db646cde55e800e7fd316819b7b7a8be530f817a73ba4c64932cedc"
+checksum = "7bf6da4b7e0da335c9d68b0bcda54ce1896da8cb2b39b966b5281cc98b0f5902"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "laterite-duckdb"
-version = "0.15.0"
+version = "0.16.0"
 dependencies = [
  "duckdb",
  "encoding_rs",
