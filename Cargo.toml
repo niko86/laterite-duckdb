@@ -73,13 +73,13 @@ path = "src/wasm_lib.rs"
 # `effective_dict` re-export, `group_row_ids_effective` — #41,
 # niko86/laterite#815) rides along.
 #
-# core 0.17.2 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.2 itself
+# core 0.17.4 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.4 itself
 # requires types ^0.14, reference ^0.16.1 and parse ^0.14, so moving any floor
 # alone resolves a second copy of a leaf — the split the one-copy CI gate refuses,
 # and why per-crate update PRs cannot merge singly. No API this reader calls
 # changed; the one difference its tests saw is catalogue data — ags_rules()
 # now reports Rule 8's severity as 'mixed' (see test/sql/laterite_ags4.test).
-laterite-ags4-core = { version = "0.17.2", default-features = false }
+laterite-ags4-core = { version = "0.17.4", default-features = false }
 laterite-ags4-types = "0.14.0"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
