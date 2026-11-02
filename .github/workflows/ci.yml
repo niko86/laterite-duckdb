@@ -56,7 +56,7 @@ jobs:
       # writes never land in main's scope. `cache-on-failure` because a red
       # clippy run has already paid the compile — keep it for the fix-up push.
       - name: Rust dependency cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 
@@ -152,7 +152,7 @@ jobs:
           toolchain: stable
 
       - name: Rust dependency cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
 
@@ -232,7 +232,7 @@ jobs:
       # tree for wasm32-unknown-emscripten, which shares no artifacts with the
       # native target. rust-cache keys per job, so the two never collide.
       - name: Rust dependency cache (wasm)
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: wasm32-unknown-emscripten
           cache-on-failure: true
@@ -303,7 +303,7 @@ jobs:
           targets: wasm32-unknown-emscripten
 
       - name: Rust dependency cache (wasm)
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: wasm32-unknown-emscripten
           cache-on-failure: true
