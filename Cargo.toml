@@ -16,15 +16,16 @@
 # `extension-ci-tools`; the laterite submodule is gone.
 [package]
 name = "laterite-duckdb"
-version = "0.16.0"
+version = "0.17.0"
 edition = "2024"
-rust-version = "1.85"      # duckdb-rs (1.10506.0) MSRV = 1.85.1; the community
-                           # wasm image ships rustc 1.86, so no 1.87 pin. This
-                           # is a real floor, not a wish: 1.86 predates
-                           # let-chains, and one `if let … &&` in src/cert.rs
-                           # made every wasm variant fail to compile in the
-                           # release matrix. ci.yml's `wasm` job builds at
-                           # 1.86.0 so the next one goes red here instead.
+rust-version = "1.89"      # laterite's engine crates need 1.89 (duckdb-rs
+                           # 1.10506.0 alone needs 1.85.1). The v1.5 pipeline's
+                           # own wasm image ships rustc 1.86, below that, so the
+                           # v1.5 build has to be requested with extension-ci-
+                           # tools v2.0-cyanoptera (rustc 1.97.1, emsdk 6.0.9),
+                           # as 0.16.0's was; those wasm builds load in
+                           # duckdb-wasm 1.5. ci.yml's wasm jobs build at that
+                           # same pairing.
 description = "Read AGS4 geotechnical files as typed, UUID-keyed tables, from SQL"
 license = "MIT"
 publish = false
@@ -75,21 +76,21 @@ path = "src/wasm_lib.rs"
 # `effective_dict` re-export, `group_row_ids_effective` — #41,
 # niko86/laterite#815) rides along.
 #
-# core 0.17.4 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.4 itself
-# requires types ^0.14, reference ^0.16.1 and parse ^0.14, so moving any floor
-# alone resolves a second copy of a leaf — the split the one-copy CI gate refuses,
-# and why per-crate update PRs cannot merge singly. No API this reader calls
-# changed; the one difference its tests saw is catalogue data — ags_rules()
-# now reports Rule 8's severity as 'mixed' (see test/sql/laterite_ags4.test).
-laterite-ags4-core = { version = "0.17.4", default-features = false }
-laterite-ags4-types = "0.14.0"
+# core 0.17.5 / types 0.15 / reference 0.16.3 move as ONE set, the engine of
+# laterite 0.17.0: core 0.17.5 requires types ^0.15, reference ^0.16.2 and parse
+# ^0.14, and reference 0.16.3 requires types ^0.15.1, so moving any floor alone
+# resolves a second copy of a leaf — the split the one-copy CI gate refuses, and
+# why per-crate update PRs cannot merge singly. types 0.15's break is confined to
+# its `arrow` feature, which this reader does not enable.
+laterite-ags4-core = { version = "0.17.5", default-features = false }
+laterite-ags4-types = "0.15.1"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
 # Held level with core's own reference minor so the workspace resolves ONE copy
 # (a split would compile two dictionaries into the binary).
-laterite-ags4-reference = "0.16.1"
+laterite-ags4-reference = "0.16.3"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so
