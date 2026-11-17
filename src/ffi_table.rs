@@ -218,10 +218,11 @@ unsafe extern "C" fn func(info: ffi::duckdb_function_info, output: ffi::duckdb_d
             ffi::duckdb_data_chunk_set_size(output, 0);
             return;
         }
-        for col in 0..bind_data.col_types.len() {
+        let chunk = &bind_data.rows[start..start + n];
+        for (col, _) in bind_data.col_types.iter().enumerate() {
             let vector = ffi::duckdb_data_chunk_get_vector(output, col as u64);
-            for i in 0..n {
-                write_cell(vector, i, &bind_data.rows[start + i][col]);
+            for (i, row) in chunk.iter().enumerate() {
+                write_cell(vector, i, &row[col]);
             }
         }
         ffi::duckdb_data_chunk_set_size(output, n as u64);

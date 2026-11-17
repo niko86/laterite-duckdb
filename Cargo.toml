@@ -18,7 +18,7 @@
 name = "laterite-duckdb"
 version = "0.16.0"
 edition = "2024"
-rust-version = "1.88"      # duckdb-rs's 2.0 line (1.20000.0) has MSRV 1.88, and
+rust-version = "1.89"      # laterite's engine crates need 1.89 (duckdb-rs's 2.0 line, 1.88), and
                            # extension-ci-tools main builds every platform,
                            # wasm included, at rustc 1.97.1. The 1.86 floor that
                            # main carries (the community wasm image's rustc, which
@@ -73,21 +73,21 @@ path = "src/wasm_lib.rs"
 # `effective_dict` re-export, `group_row_ids_effective` — #41,
 # niko86/laterite#815) rides along.
 #
-# core 0.17.4 / types 0.14 / reference 0.16.1 move as ONE set: core 0.17.4 itself
-# requires types ^0.14, reference ^0.16.1 and parse ^0.14, so moving any floor
-# alone resolves a second copy of a leaf — the split the one-copy CI gate refuses,
-# and why per-crate update PRs cannot merge singly. No API this reader calls
-# changed; the one difference its tests saw is catalogue data — ags_rules()
-# now reports Rule 8's severity as 'mixed' (see test/sql/laterite_ags4.test).
-laterite-ags4-core = { version = "0.17.4", default-features = false }
-laterite-ags4-types = "0.14.0"
+# core 0.17.5 / types 0.15 / reference 0.16.3 move as ONE set, the engine of
+# laterite 0.17.0: core 0.17.5 requires types ^0.15, reference ^0.16.2 and parse
+# ^0.14, and reference 0.16.3 requires types ^0.15.1, so moving any floor alone
+# resolves a second copy of a leaf — the split the one-copy CI gate refuses, and
+# why per-crate update PRs cannot merge singly. types 0.15's break is confined to
+# its `arrow` feature, which this reader does not enable.
+laterite-ags4-core = { version = "0.17.5", default-features = false }
+laterite-ags4-types = "0.15.1"
 # The reference-data leaf (dictionary registry + rules-catalogue metadata),
 # not the full validator: this reader only needs Dictionary / DictVersion /
 # rule_metadata_json — all reference data, zero rule-engine — so depending on
 # the leaf drops the validator's ~8.8k-line numbered-rules engine from the build.
 # Held level with core's own reference minor so the workspace resolves ONE copy
 # (a split would compile two dictionaries into the binary).
-laterite-ags4-reference = "0.16.1"
+laterite-ags4-reference = "0.16.3"
 serde_json = "1"
 # WHATWG-label byte→text decoding for the `encoding` named param on read_ags /
 # validate_ags (#294 #12). Already transitive via laterite-ags4-parse; direct so

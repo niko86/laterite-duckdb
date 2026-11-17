@@ -743,9 +743,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-core"
-version = "0.17.4"
+version = "0.17.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bf6da4b7e0da335c9d68b0bcda54ce1896da8cb2b39b966b5281cc98b0f5902"
+checksum = "8d7a62aa913e3a298d8cab4f894eff2c56a716a5cf73a3c9f4e1561c1c537c19"
 dependencies = [
  "laterite-ags4-parse",
  "laterite-ags4-reference",
@@ -769,9 +769,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-reference"
-version = "0.16.1"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68acdd30a3808ea4851a4fc44b14778fc262c2f65e0be76046b41ad11b84a642"
+checksum = "e5776e79bf229016e2c808d391a53b41d62e179ab92e7911b343b66c69855ad2"
 dependencies = [
  "encoding_rs",
  "laterite-ags4-parse",
@@ -786,9 +786,9 @@ dependencies = [
 
 [[package]]
 name = "laterite-ags4-types"
-version = "0.14.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b75ead5e9aa475f743bf167a67efe07adae91ef7607391fcf87e270f2ef528f"
+checksum = "9f0ce7c9c14865060587367203fc493ad46b35c3edaa57449e44d9488a3ab2ba"
 dependencies = [
  "chrono",
  "serde",
