@@ -146,10 +146,11 @@ export async function runChecks({ platform, artifact, attempt, registerBuffer, p
     const loaded = await attempt('LOAD laterite_ags4');
     if (!checkThat('LOAD laterite_ags4 (fetched from the local extension repository)', loaded.ok, loaded.message)) {
         // The one failure here that is about the toolchain rather than the code, and
-        // it is unreadable without this: an emsdk newer than the pinned 3.1.71
-        // defaults WASM_BIGINT ON, so the side module imports `invoke_*` with real
-        // i64 parameters while duckdb-wasm's main module offers the legalized
-        // i32-pair form. CI pins the right emsdk; a local build may not.
+        // it is unreadable without this: with rustc 1.86, an emsdk newer than
+        // 3.1.71 defaults WASM_BIGINT ON, so the side module imports `invoke_*`
+        // with real i64 parameters while duckdb-wasm's main module offers the
+        // legalized i32-pair form. CI pins a working emsdk + rustc pairing; a
+        // local build may not.
         if (/shared state of memory/.test(loaded.message ?? '')) {
             // The coi host imports a SHARED memory; a side module linked without
             // -pthread declares a non-shared one, and wasm refuses the pairing.
@@ -162,8 +163,8 @@ export async function runChecks({ platform, artifact, attempt, registerBuffer, p
         } else if (/LinkError|invoke_/.test(loaded.message ?? '')) {
             console.log('\n  That is an emscripten ABI mismatch, not an extension bug: the artifact was');
             console.log('  linked by an emsdk whose WASM_BIGINT default disagrees with the one');
-            console.log('  @duckdb/duckdb-wasm was built with. CI and the community release matrix pin');
-            console.log('  emsdk 3.1.71 — build with that (`emcc -v`) before reading this as a code failure.\n');
+            console.log('  @duckdb/duckdb-wasm was built with. Build with the emsdk and rustc that');
+            console.log("  ci.yml's wasm job pins (`emcc -v`) before reading this as a code failure.\n");
         }
         return report.failures;
     }

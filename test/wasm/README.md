@@ -109,8 +109,12 @@ which requests the floor version from the host (`src/lib.rs`).
 
 ## The emsdk version matters too
 
-CI and the community release matrix both link with **emsdk 3.1.71** (that is the
-version `extension-ci-tools`' own wasm job pins). A newer emsdk defaults
+On this branch, CI and the community's v1.5 build both link with **emsdk 6.0.9**
+and rustc 1.97.1, the pairing `extension-ci-tools` v2.0-cyanoptera pins (laterite
+0.17's engine needs rustc 1.89, above the v1.5 image's 1.86; see Cargo.toml).
+Built that way, the 0.16.0 v1.5 artifacts load in duckdb-wasm 1.5. Before that it
+was emsdk 3.1.71 with rustc 1.86, and the rest of this section is why the two pins
+travel together: on that rustc, a newer emsdk defaults
 `WASM_BIGINT` **on**, which makes the side module import `invoke_*` trampolines
 with real `i64` parameters while duckdb-wasm's main module offers the legalized
 `i32`-pair form — `LOAD` then fails with
@@ -122,7 +126,7 @@ imported function does not match the expected type
 
 The gate says so when it sees that shape. It is an ABI mismatch between your
 local emsdk and the prebuilt duckdb-wasm, not a fault in the extension; build
-with 3.1.71 to reproduce what ships. Which `invoke_*` trampolines exist at all
+with CI's emsdk and rustc pins to reproduce what ships. Which `invoke_*` trampolines exist at all
 also depends on the Rust version (1.87+ moved `wasm32-unknown-emscripten` to
 native wasm exceptions), so a modern local toolchain can hide the mismatch
 entirely — another reason the CI job pins both.

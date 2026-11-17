@@ -172,10 +172,11 @@ jobs:
   #
   # It mirrors the steps extension-ci-tools' own wasm job uses
   # (`extension-ci-tools/.github/workflows/_extension_distribution.yml`) —
-  # setup-emsdk at the version that image pins, rustc 1.86.0 (the community wasm
-  # image's toolchain, and the reason this extension builds for wasm at all: see
-  # description.yml), then ci-tools' `make wasm_*` targets — rather than
-  # hand-rolling an emscripten setup that would drift from the release build.
+  # setup-emsdk and rustc at the pairing the community's v1.5 build of this
+  # branch runs with (extension-ci-tools v2.0-cyanoptera: emsdk 6.0.9, rustc
+  # 1.97.1; see Cargo.toml's rust-version), then ci-tools' `make wasm_*` targets —
+  # rather than hand-rolling an emscripten setup that would drift from the
+  # release build.
   #
   # Only ci.yml carries this. release.yml tests the RELEASE artifact because it
   # differs from ci.yml's debug one; the wasm targets are always release builds,
@@ -190,8 +191,8 @@ jobs:
           submodules: recursive
 
       # The emcc that links the staticlib archive into an emscripten SIDE_MODULE.
-      # Pinned to the version extension-ci-tools' wasm job pins, so what CI links
-      # is what the community build links.
+      # Pinned to the version the community's v1.5 build links with
+      # (extension-ci-tools v2.0-cyanoptera), so what CI links is what ships.
       #
       # No `actions-cache-folder`: the action's cache-save races its own key
       # (`Unable to reserve cache with key 3.1.71-linux-x64-master`) and fails the
@@ -200,24 +201,20 @@ jobs:
       # buying much.
       - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: 3.1.71
+          version: 6.0.9
 
-      # 1.86.0, not `stable` — the exact toolchain extension-ci-tools' wasm job
-      # pins, so this gates the artifact the release matrix actually produces.
-      # A newer rustc here would gate a DIFFERENT binary and hide real breakage,
-      # in both directions:
-      #   - forward: 1.86 predates let-chains (stable in 1.88). One `if let … &&`
-      #     in src/cert.rs made every wasm variant fail to compile in the release
-      #     matrix while everything in this repo stayed green — found only by
-      #     building at this pin (#29).
-      #   - backward: 1.87 moved wasm32-unknown-emscripten to native wasm
-      #     exceptions, so a modern rustc emits no `invoke_*` trampolines at all
-      #     and cannot surface an emscripten ABI mismatch that 1.86 would hit.
+      # 1.97.1, not `stable` — the exact toolchain the community's v1.5 build
+      # uses, so this gates the artifact that actually ships. A different rustc
+      # here would gate a DIFFERENT binary: 1.87 moved wasm32-unknown-emscripten
+      # to native wasm exceptions, and before that a let-chain compiled here but
+      # not in the release matrix (#29). It was 1.86.0, the v1.5 pipeline's own
+      # image, until laterite 0.17's engine crates raised the floor to 1.89; the
+      # 0.16.0 v1.5 build, made at this pairing, loads in duckdb-wasm 1.5.
       # The emsdk pin above is the other half of the same pairing.
       - name: Install Rust toolchain (wasm)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.97.1
           targets: wasm32-unknown-emscripten
 
       # Separate cache scope from build-test: this compiles the whole dependency
@@ -276,12 +273,12 @@ jobs:
 
       - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: 3.1.71
+          version: 6.0.9
 
       - name: Install Rust toolchain (wasm)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.97.1
           targets: wasm32-unknown-emscripten
 
       - name: Rust dependency cache (wasm)
